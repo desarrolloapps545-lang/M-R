@@ -191,13 +191,13 @@
 
         <h3 id="dashboard-date-range" style="color: #555;">Seleccione un modo</h3>
 
-        <div class="table-responsive">
-            <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-                <!-- Tabla Izquierda: Créditos -->
-                <div style="flex: 1; min-width: 400px;">
-                    <h3>Créditos</h3>
-                    <table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
-                        <thead style="background-color: #f8f9fa;">
+        <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+            <!-- Tabla Izquierda: Créditos -->
+            <div style="flex: 1; min-width: 400px;">
+                <h3>Créditos</h3>
+                <div class="table-responsive">
+                    <table class="dashboard-table">
+                        <thead>
                             <tr>
                                 <th>Asesor</th>
                                 <th>Municipio</th>
@@ -210,12 +210,14 @@
                         <tbody id="dashboard-credits-body"></tbody>
                     </table>
                 </div>
+            </div>
 
-                <!-- Tabla Derecha: Cobros y Recaudos -->
-                <div style="flex: 1; min-width: 400px;">
-                    <h3>Cobros</h3>
-                    <table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
-                        <thead style="background-color: #f8f9fa;">
+            <!-- Tabla Derecha: Cobros y Recaudos -->
+            <div style="flex: 1; min-width: 400px;">
+                <h3>Cobros</h3>
+                <div class="table-responsive">
+                    <table class="dashboard-table">
+                        <thead>
                             <tr>
                                 <th>Asesor</th>
                                 <th>Municipio</th>

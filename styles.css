@@ -997,3 +997,12 @@ tr:last-child td {
     from { opacity: 1; }
     to { opacity: 0; }
 }
+
+/* Estilos específicos para las tablas del Tablero de Control */
+.dashboard-table {
+    font-size: 0.9em;
+}
+
+.dashboard-table thead {
+    background-color: #f8f9fa;
+}
