@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ADMINISTRACION M&R</title>
+    <!-- Importar Supabase desde CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Importar SheetJS (XLSX) para exportar a Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.min.js"></script>
+    <!-- Importar FontAwesome para iconos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="icon" href="img/spinner.png" type="image/png">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Pantalla de Carga Sólida (Login/Navegación) -->
+    <div id="loading-overlay-solid" style="display: flex; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: #16233c; z-index: 9999; justify-content: center; align-items: center; flex-direction: column;">
+        <img src="img/logo.png" alt="Cargando" style="width: 100px; height: 100px; border-radius: 50%; border: 3px solid white; margin-bottom: 20px; animation: pulse 1.5s infinite;">
+        <div style="color: white; font-size: 1.2em;">Cargando...</div>
+    </div>
+
+    <!-- Overlay para sidebar en móvil -->
+    <div id="sidebar-overlay"></div>
+
+    <!-- Pantalla de Carga Semitransparente (Actualizar) -->
+    <div id="loading-overlay-transparent" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(255, 255, 255, 0.7); z-index: 9998; justify-content: center; align-items: center;">
+        <div style="border: 5px solid #f3f3f3; border-top: 5px solid #16233c; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite;"></div>
+    </div>
+
+    <div id="sidebar-container" style="display: none;">
+        <img id="sidebar-logo" src="img/logo.png" alt="Logo" style="width: 70px; height: 70px; display: block; margin: 0 auto 10px auto; border-radius: 15px; border: 3px solid white; cursor: pointer;" title="Click para expandir/encoger">
+        <p id="sidebar-welcome-msg" style="color: white; text-align: center; font-size: 0.9em; margin-bottom: 20px;"></p>
+        <button id="sb-btn-users" class="sidebar-btn"><i class="fas fa-users"></i> <span>Usuarios</span></button>
+        <button id="sb-btn-clients" class="sidebar-btn" style="position: relative;"><i class="fas fa-address-book"></i> <span>Clientes</span> <span id="badge-clients-sb" class="notification-badge" style="display:none;">0</span></button>
+        <button id="sb-btn-munis" class="sidebar-btn"><i class="fas fa-map-marked-alt"></i> <span>Municipios</span></button>
+        <button id="sb-btn-dashboard" class="sidebar-btn"><i class="fas fa-chart-line"></i> <span>Tablero</span></button>
+        <button id="sb-btn-reports" class="sidebar-btn"><i class="fas fa-file-alt"></i> <span>Informes</span></button>
+        <button id="sb-btn-import" class="sidebar-btn"><i class="fas fa-file-import"></i> <span>Importar</span></button>
+        <button id="sb-btn-export" class="sidebar-btn"><i class="fas fa-file-export"></i> <span>Exportar</span></button>
+        <button id="sb-btn-inversiones" class="sidebar-btn"><img src="img/spinner.png" style="width: 20px; height: 20px; border: 1px solid white; border-radius: 5px;"> <span>INVERSIONES M&R</span></button>
+        <button id="sb-btn-database" class="sidebar-btn"><i class="fas fa-database"></i> <span>Base de datos</span></button>
+        <button id="sb-btn-refresh" class="sidebar-btn"><i class="fas fa-sync-alt"></i> <span>Actualizar</span></button>
+        <div style="flex-grow: 1;"></div>
+        <button id="sb-btn-logout" class="sidebar-btn" style="background-color: #e74c3c; border-color: white;"><i class="fas fa-sign-out-alt"></i> <span>Cerrar Sesión</span></button>
+    </div>
+
+    <div id="login-container">
+        <div class="login-box">
+            <img src="img/spinner.png" alt="Logo" style="width: 80px; height: 80px;">
+            <h2>Iniciar Sesión</h2>
+            
+            <input type="email" id="email" placeholder="Correo electrónico" />
+            <input type="password" id="password" placeholder="Contraseña" />
+                    <div style="margin: 10px 0; text-align: left;">
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                            <input type="checkbox" id="rememberMe" style="width: auto; margin: 0;"> Recordar datos
+                        </label>
+                    </div>            <button id="loginBtn" class="btn-primary" style="width: 100%;"><i class="fas fa-sign-in-alt"></i> Ingresar</button>
+            <p style="margin-top: 10px;"><button id="forgotPassBtn" style="background:none; border:none; color:#16233c; text-decoration:underline; cursor:pointer; padding: 0;">¿Olvidó su contraseña?</button></p>
+            <p id="statusMessage"></p>
+        </div>
+    </div>
+
+    <div id="main-menu-container" style="display: none;">
+        <div class="menu-box">
+            <img src="img/logo.png" alt="Logo" style="width: 80px; height: 80px; display: block; margin: 0 auto 10px auto; border-radius: 15px; border: 3px solid white;">
+            <h2 id="main-menu-welcome" style="font-size: 1.2rem; margin-top: 5px;">Bienvenido</h2>
+            <div class="menu-grid">
+                <button id="btn-users-mgmt" class="btn-primary"><i class="fas fa-users"></i> Gestión de Usuarios</button>
+                <button id="btn-clients-mgmt" class="btn-primary" style="position: relative;"><i class="fas fa-address-book"></i> Gestión de Clientes <span id="badge-clients-main" class="notification-badge" style="display:none;">0</span></button>
+                <button id="btn-municipalities-mgmt" class="btn-primary"><i class="fas fa-map-marked-alt"></i> Gestión de Municipios</button>
+                <button id="btn-dashboard-control" class="btn-primary"><i class="fas fa-chart-line"></i> Tablero de Control</button>
+                <button id="btn-reports-section" class="btn-primary"><i class="fas fa-file-alt"></i> Informes</button>
+                <button id="btn-inversiones-menu" class="btn-primary"><img src="img/spinner.png" style="width: 20px; height: 20px; border: 1px solid white; border-radius: 5px;"> INVERSIONES M&R</button>
+                <button id="btn-database-menu" class="btn-primary"><i class="fas fa-database"></i> Base de datos</button>
+                <button id="btn-import-excel" class="btn-primary"><i class="fas fa-file-import"></i> Importar Excel</button>
+                <button id="btn-export-menu" class="btn-primary"><i class="fas fa-file-export"></i> Exportar</button>
+            </div>
+            <input type="file" id="importExcelInput" accept=".xlsx, .xls" style="display: none;" />
+            <button id="logoutBtn" class="btn-primary" style="margin-top: 10px;"><i class="fas fa-sign-out-alt"></i> Cerrar Sesión</button>
+        </div>
+    </div>
+
+    <div id="dashboard-container" style="display: none;">
+        <div class="workspace-header">
+            <button class="sidebar-toggle-mobile"><i class="fas fa-bars"></i></button>
+            <h1>Gestión de Usuarios</h1>
+        </div>
+        <div class="workspace-toolbar">
+            <button id="createUserBtn" class="btn-primary"><i class="fas fa-user-plus"></i> Nuevo Usuario</button>
+            <button id="devChangePassBtn" class="btn-primary" style="display:none;"><i class="fas fa-key"></i> Cambiar contraseña</button>
+            <button id="devUpdateDataBtn" class="btn-primary" style="display:none;"><i class="fas fa-user-edit"></i> Actualizacion de datos</button>
+        </div>
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Cédula</th>
+                        <th>Email</th>
+                        <th>Rol</th>
+                        <th>Municipios</th>
+                        <th>Fecha de Registro</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="users-table-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="clients-container" style="display: none;">
+        <div class="workspace-header">
+            <button class="sidebar-toggle-mobile"><i class="fas fa-bars"></i></button>
+            <h1>Gestión de Clientes</h1>
+        </div>
+        <div class="workspace-toolbar">
+            <button id="btn-multi-delete-mode" class="btn-primary"><i class="fas fa-tasks"></i> Eliminación múltiple</button>
+            <button id="btn-delete-selected" class="btn-primary" style="display:none;"><i class="fas fa-trash-alt"></i> Borrar (<span id="selected-count">0</span>)</button>
+            <button id="btn-search-client" class="btn-primary"><i class="fas fa-search"></i> Buscar Cliente</button>
+            <button id="btn-new-client" class="btn-primary"><i class="fas fa-user-plus"></i> Nuevo Cliente</button>
+        </div>
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th class="multi-delete-col" style="display:none;">Select</th>
+                        <th>Cliente</th>
+                        <th>Cédula</th>
+                        <th>Teléfono</th>
+                        <th>Municipio</th>
+                        <th>Estado Crédito</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="clients-table-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="municipalities-container" style="display: none;">
+        <div class="workspace-header">
+            <button class="sidebar-toggle-mobile"><i class="fas fa-bars"></i></button>
+            <h1>Gestión de Municipios</h1>
+        </div>
+        <div style="margin-bottom: 20px;">
+            <button id="btn-view-munis-section" class="btn-primary"><i class="fas fa-eye"></i> Ver Municipios</button>
+            <button id="btn-create-munis-section" class="btn-primary"><i class="fas fa-plus-circle"></i> Crear Municipios</button>
+        </div>
+
+        <!-- Sección Ver Municipios -->
+        <div id="view-munis-box" style="display: none; background-color: white; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); padding: 20px; max-width: 600px; margin: 0 auto;">
+            <h2>Ver Municipios</h2>
+            <label>Seleccionar Departamento:</label>
+            <select id="view-muni-dept-select" style="width: 100%; padding: 8px; margin-bottom: 10px;"></select>
+            <button id="btn-search-munis-db" class="btn-primary"><i class="fas fa-search"></i> Buscar</button>
+            
+            <div id="munis-list-container" style="margin-top: 20px; max-height: 400px; overflow-y: auto; border-top: 1px solid #eee;"></div>
+        </div>
+
+        <!-- Sección Crear Municipios -->
+        <div id="create-munis-box" style="display: none; background-color: white; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); padding: 20px; max-width: 600px; margin: 0 auto;">
+            <h2>Crear Municipios</h2>
+            <label>Departamento:</label>
+            <select id="create-muni-dept-select" style="width: 100%; padding: 8px; margin-bottom: 10px;"></select>
+            
+            <div id="new-munis-inputs-container">
+                <!-- Aquí se agregarán los inputs dinámicamente -->
+            </div>
+            
+            <button id="btn-add-muni-field" class="btn-primary" style="margin-bottom: 15px;"><i class="fas fa-plus"></i> + Agregar otro campo</button>
+            <br>
+            <button id="btn-save-new-muni" class="btn-primary"><i class="fas fa-save"></i> Guardar</button>
+            <button id="btn-cancel-new-muni" class="btn-primary"><i class="fas fa-times"></i> Cancelar</button>
+        </div>
+    </div>
+
+    <!-- Tablero de Control -->
+    <div id="dashboard-control-container" style="display: none;">
+        <div class="workspace-header">
+            <button class="sidebar-toggle-mobile"><i class="fas fa-bars"></i></button>
+            <h1>Tablero de Control</h1>
+        </div>
+        
+        <div style="margin-bottom: 20px; display: flex; gap: 10px;">
+            <button id="btn-dashboard-daily" class="btn-secondary"><i class="fas fa-calendar-day"></i> Diario</button>
+            <button id="btn-dashboard-weekly" class="btn-secondary"><i class="fas fa-calendar-week"></i> Semanal</button>
+            <button id="btn-dashboard-download" class="btn-primary"><i class="fas fa-download"></i> Descargar</button>
+        </div>
+
+        <h3 id="dashboard-date-range" style="color: #555;">Seleccione un modo</h3>
+
+        <div class="table-responsive">
+            <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                <!-- Tabla Izquierda: Créditos -->
+                <div style="flex: 1; min-width: 400px;">
+                    <h3>Créditos</h3>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
+                        <thead style="background-color: #f8f9fa;">
+                            <tr>
+                                <th>Asesor</th>
+                                <th>Municipio</th>
+                                <th>Tipo Crédito</th>
+                                <th>Valor Crédito</th>
+                                <th>Ganancias</th>
+                                <th>Valor Cuota</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dashboard-credits-body"></tbody>
+                    </table>
+                </div>
+
+                <!-- Tabla Derecha: Cobros y Recaudos -->
+                <div style="flex: 1; min-width: 400px;">
+                    <h3>Cobros</h3>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
+                        <thead style="background-color: #f8f9fa;">
+                            <tr>
+                                <th>Asesor</th>
+                                <th>Municipio</th>
+                                <th>Cobro (Esperado)</th>
+                                <th>Recaudo (Real)</th>
+                                <th>% Cobro</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dashboard-collections-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Edición -->
+    <div id="editModal" class="modal" style="display:none;">
+        <div class="modal-content" style="width:350px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <h2>Editar Usuario</h2>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Nombre:</label>
+            <input type="text" id="edit-name" placeholder="Nombre" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Cédula:</label>
+            <input type="text" id="edit-cedula" placeholder="Cédula" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Correo:</label>
+            <input type="email" id="edit-email" placeholder="Correo" readonly style="background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+            
+            <div id="edit-location-container">
+                <label style="font-weight: bold; margin-bottom: 5px; display: block; font-size: 0.9em; color: #333;">Departamento:</label>
+                <select id="edit-dept" style="margin-bottom: 10px; width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px;"></select>
+                
+                <label style="font-weight: bold; margin-bottom: 5px; display: block; font-size: 0.9em; color: #333;">Municipios:</label>
+                <div style="position: relative;">
+                    <input type="text" id="edit-muni-count" readonly placeholder="0 seleccionados (Click para editar)" style="cursor: pointer; background-color: white; border: 1px solid #ccc; border-radius: 5px; color: #333; padding: 10px; padding-right: 30px; width: 100%; box-sizing: border-box;">
+                    <i class="fas fa-chevron-right" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #666; pointer-events: none;"></i>
+                </div>
+            </div>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Rol:</label>
+            <select id="edit-role" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+                <option value="Administrador">Administrador</option>
+                <option value="Usuario">Usuario</option>
+            </select>
+            
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="saveEditBtn" class="btn-primary" style="flex: 1;"><i class="fas fa-save"></i> Guardar</button>
+                <button id="cancelEditBtn" class="btn-secondary" style="flex: 1;"><i class="fas fa-times"></i> Cancelar</button>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Creación de Usuario -->
+    <div id="createModal" class="modal" style="display:none; z-index: 1500;">
+        <div class="modal-content" style="width:350px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <h2>Añadir Nuevo Usuario</h2>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Nombre completo:</label>
+            <input type="text" id="create-name" placeholder="Ingrese nombre completo" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Cédula:</label>
+            <input type="text" id="create-cedula" placeholder="Ingrese cédula" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Correo electrónico:</label>
+            <input type="email" id="create-email" placeholder="Ingrese correo electrónico" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Contraseña:</label>
+            <input type="password" id="create-password" placeholder="Mínimo 6 caracteres" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Rol:</label>
+            <select id="create-role" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+                <option value="Usuario">Usuario</option>
+                <option value="Administrador">Administrador</option>
+            </select>
+
+            <div id="create-location-container">
+                <label style="font-weight: bold; margin-bottom: 5px; display: block; font-size: 0.9em; color: #333;">Departamento:</label>
+                <select id="create-dept" style="margin-bottom: 10px; width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px;"></select>
+                
+                <label style="font-weight: bold; margin-bottom: 5px; display: block; font-size: 0.9em; color: #333;">Municipios:</label>
+                <div style="position: relative;">
+                    <input type="text" id="create-muni-count" readonly placeholder="Seleccionar municipios..." style="cursor: pointer; background-color: white; border: 1px solid #ccc; border-radius: 5px; color: #333; padding: 10px; padding-right: 30px; width: 100%; box-sizing: border-box;">
+                    <i class="fas fa-chevron-right" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #666; pointer-events: none;"></i>
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="saveCreateBtn" class="btn-primary" style="flex: 1;"><i class="fas fa-save"></i> Guardar</button>
+                <button id="cancelCreateBtn" class="btn-secondary" style="flex: 1;"><i class="fas fa-times"></i> Cancelar</button>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Selección de Municipios -->
+    <div id="muniModal" class="modal" style="display:none; z-index: 2000;">
+        <div class="modal-content" style="width:300px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <h2>Seleccionar Municipios</h2>
+            <div id="muni-container" style="border: 1px solid #ccc; padding: 10px; max-height: 300px; overflow-y: auto;"></div>
+            <button id="confirmMuniBtn" class="btn-primary"><i class="fas fa-check"></i> Listo</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Cambio Contraseña -->
+    <div id="passwordModal" class="modal" style="display:none; z-index: 3000;">
+        <div class="modal-content" style="width:300px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <h2>Cambiar Contraseña</h2>
+            <p>Usuario: <span id="pass-user-name" style="font-weight:bold;"></span></p>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Nueva contraseña:</label>
+            <input type="password" id="new-password" placeholder="Nueva contraseña" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+            
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="savePassBtn" class="btn-primary" style="flex: 1;"><i class="fas fa-save"></i> Actualizar</button>
+                <button id="cancelPassBtn" class="btn-secondary" style="flex: 1;"><i class="fas fa-times"></i> Cancelar</button>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Olvidé mi Contraseña -->
+    <div id="forgotPassModal" class="modal" style="display:none; z-index: 3500;">
+        <div class="modal-content" style="width:300px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <h2>Recuperar Contraseña</h2>
+            <p style="font-size: 0.9em; color: #666;">Ingrese sus datos de identidad y su nueva contraseña.</p>
+            <input type="text" id="forgot-name" placeholder="Nombre completo"/>
+            <input type="email" id="forgot-email" placeholder="Correo electrónico">
+            <select id="forgot-role" style="padding: 8px; font-size: 1em;">
+                <option value="" disabled selected>Seleccione su rol</option>
+                <option value="Administrador">Administrador</option>
+                <option value="Administrador maestro">Administrador maestro</option>
+                <option value="Desarrollador">Desarrollador</option>
+            </select>
+            <input type="password" id="forgot-new-password" placeholder="Nueva contraseña (mín. 6 caracteres)">
+            <input type="password" id="forgot-confirm-password" placeholder="Confirmar nueva contraseña">
+            <button id="confirmForgotBtn" class="btn-primary"><i class="fas fa-unlock-alt"></i> Restablecer Contraseña</button>
+            <button id="cancelForgotBtn" class="btn-primary"><i class="fas fa-times"></i> Cancelar</button>
+        </div>
+        </div>
+    </div>
+
+    <!-- Modal Actualizar Datos Desarrollador-->
+    <div id="devUpdateModal" class="modal" style="display:none; z-index: 3100;">
+        <div class="modal-content" style="width:300px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <h2>Actualizacion de datos</h2>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Nombre:</label>
+            <input type="text" id="dev-edit-name" placeholder="Nombre" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Cédula:</label>
+            <input type="text" id="dev-edit-cedula" placeholder="Cédula" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Correo:</label>
+            <input type="email" id="dev-edit-email" placeholder="Correo" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+            
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="saveDevUpdateBtn" class="btn-primary" style="flex: 1;"><i class="fas fa-save"></i> Guardar</button>
+                <button id="cancelDevUpdateBtn" class="btn-secondary" style="flex: 1;"><i class="fas fa-times"></i> Cancelar</button>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Detalles Cliente (Créditos) -->
+    <div id="clientDetailsModal" class="modal" style="display:none; z-index: 2500;">
+        <div class="modal-content wide" style="width:95%; max-width: 1400px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <span id="closeClientDetailsX" style="position: absolute; top: 10px; right: 20px; font-size: 24px; cursor: pointer; font-weight: bold;">&times;</span>
+            <h2>Historial de creditos</h2>
+            <h3 id="detail-client-name" style="margin: 0;"></h3>
+            <p style="margin: 0;">Recaudo total: <span id="detail-total-collection" style="color: gray;">--</span></p>
+            <table class="dark-bordered-table" style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                <thead>
+                    <tr>
+                        <th style="white-space: nowrap;">Tipo de crédito</th>
+                        <th style="white-space: nowrap;">Valor Cuota</th>
+                        <th style="white-space: nowrap;">Intereses</th>
+                        <th style="white-space: nowrap;">Fecha</th>
+                        <th style="white-space: nowrap;">Valor Crédito</th>
+                        <th style="white-space: nowrap;">Saldo</th>
+                        <th style="white-space: nowrap;">Cuotas Rest.</th>
+                        <th style="white-space: nowrap;">Tipo de pago</th>
+                        <th>Asesor</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="client-credits-table-body"></tbody>
+            </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Editar Cliente -->
+    <div id="editClientModal" class="modal" style="display:none; z-index: 2600;">
+        <div style="background:white; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width:400px; max-width: 90%; display:flex; flex-direction:column; max-height: 90vh; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); overflow: hidden;">
+            <div class="modal-scrollable-content" style="padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
+            <h2>Editar Cliente</h2>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Nombre:</label>
+            <input type="text" id="edit-client-name" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px; width: 100%; box-sizing: border-box;">
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Cédula:</label>
+            <input type="text" id="edit-client-cedula" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px; width: 100%; box-sizing: border-box;">
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Teléfono:</label>
+            <input type="text" id="edit-client-phone" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px; width: 100%; box-sizing: border-box;">
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Dirección:</label>
+            <input type="text" id="edit-client-address" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px; width: 100%; box-sizing: border-box;">
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Departamento:</label>
+            <select id="edit-client-dept" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px; width: 100%; box-sizing: border-box;"></select>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Municipio:</label>
+            <select id="edit-client-muni" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px; width: 100%; box-sizing: border-box;"></select>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Asesor:</label>
+            <select id="edit-client-advisor" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px; width: 100%; box-sizing: border-box;"></select>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Tipo de pago permitido:</label>
+            <select id="edit-client-frequency" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px; width: 100%; box-sizing: border-box;">
+                <option value="Diario">Diario</option>
+                <option value="Semanal">Semanal</option>
+            </select>
+            
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="saveEditClientBtn" class="btn-primary" style="flex: 1;"><i class="fas fa-save"></i> Guardar</button>
+                <button id="cancelEditClientBtn" class="btn-secondary" style="flex: 1;"><i class="fas fa-times"></i> Cancelar</button>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Nuevo Cliente -->
+    <div id="createClientModal" class="modal" style="display:none; z-index: 2600;">
+        <div style="background:white; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding:20px; width:90%; max-width: 500px; display:flex; flex-direction:column; gap:10px; max-height: 90vh; overflow-y: auto; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+            <h2>Nuevo Cliente</h2>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Nombre:</label>
+            <input type="text" id="create-client-name" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Cédula:</label>
+            <input type="text" id="create-client-cedula" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Teléfono:</label>
+            <input type="text" id="create-client-phone" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Dirección:</label>
+            <input type="text" id="create-client-address" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Departamento:</label>
+            <select id="create-client-dept" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;"></select>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Municipio:</label>
+            <select id="create-client-muni" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;"></select>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Asesor:</label>
+            <select id="create-client-advisor" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;"></select>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Tipo de pago permitido:</label>
+            <select id="create-client-frequency" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+                <option value="Diario">Diario</option>
+                <option value="Semanal">Semanal</option>
+            </select>
+            
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="saveCreateClientBtn" class="btn-primary" style="flex: 1;"><i class="fas fa-save"></i> Guardar</button>
+                <button id="cancelCreateClientBtn" class="btn-secondary" style="flex: 1;"><i class="fas fa-times"></i> Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Opciones de Eliminación -->
+    <div id="deleteClientOptionsModal" class="modal" style="display:none; z-index: 2900;">
+        <div class="modal-content" style="width:300px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <h2>Eliminar</h2>
+            <p>Cliente: <span id="delete-client-name-display" style="font-weight:bold;"></span></p>
+            <p>¿Qué desea eliminar?</p>
+            
+            <button id="btn-delete-extra-only" class="btn-primary"><i class="fas fa-eraser"></i>
+                Eliminar Cupo extra
+            </button>
+            
+            <button id="btn-delete-full-history" class="btn-primary"><i class="fas fa-trash-alt"></i>
+                Eliminar Cliente y Todo su Historial
+            </button>
+            
+            <button id="btn-cancel-delete-options" class="btn-primary" style="margin-top: 10px;"><i class="fas fa-times"></i> Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Editar Crédito -->
+    <div id="editCreditModal" class="modal" style="display:none; z-index: 2600;">
+        <div style="background:white; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width:400px; max-width: 90%; display:flex; flex-direction:column; max-height: 90vh; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); overflow: hidden;">
+            <div class="modal-scrollable-content" style="padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
+            <h2>Editar Crédito</h2>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                
+                    <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Fecha Venta:</label>
+                    <input type="date" id="edit-credit-date" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;">
+                
+                
+                    <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Tipo Crédito:</label>
+                    <select id="edit-credit-type" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;">
+                        <option value="Nuevo">Nuevo</option>
+                        <option value="Represte">Represte</option>
+                    </select>
+                
+                
+                    <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Valor Crédito:</label>
+                    <input type="number" id="edit-credit-value" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;">
+                
+                
+                    <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Intereses:</label>
+                    <input type="number" id="edit-credit-interests" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;">
+                
+                
+                    <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Valor Cuota:</label>
+                    <input type="number" id="edit-credit-quota" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;">
+                
+                
+                    <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Saldo Actual:</label>
+                    <input type="number" id="edit-credit-balance" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;">
+                
+                
+                    <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Cuotas Restantes:</label>
+                    <input type="number" id="edit-credit-remaining" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;">
+                
+                
+                    <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Frecuencia:</label>
+                    <select id="edit-credit-term" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;">
+                        <option value="Diario">Diario</option>
+                        <option value="Semanal">Semanal</option>
+                    </select>
+                
+                
+                    <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Municipio:</label>
+                    <input type="text" id="edit-credit-municipality" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;">
+                
+                
+                    <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Asesor:</label>
+                    <select id="edit-credit-advisor" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;"></select>
+            </div>
+            
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="btn-save-edit-credit" class="btn-primary" style="flex: 1;"><i class="fas fa-save"></i> Guardar</button>
+                <button id="btn-cancel-edit-credit" class="btn-secondary" style="flex: 1;"><i class="fas fa-times"></i> Cancelar</button>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Pagos del Crédito -->
+    <div id="creditPaymentsModal" class="modal" style="display:none; z-index: 2600;">
+        <div class="modal-content wide" style="width:90%; max-width: 800px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <span id="closeCreditPaymentsX" style="position: absolute; top: 10px; right: 20px; font-size: 24px; cursor: pointer; font-weight: bold;">&times;</span>
+            <h2>Pagos del Crédito</h2>
+            <div style="max-height: 300px; overflow-y: auto;">
+            <table class="dark-bordered-table" style="width: 100%; border-collapse: collapse;">
+                <thead><tr><th>Fecha</th><th>Día</th><th>Abono</th><th>Método</th><th>Acciones</th></tr></thead>
+                <tbody id="credit-payments-body"></tbody>
+            </table>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Buscar Cliente -->
+    <div id="searchClientModal" class="modal" style="display:none; z-index: 2650;">
+        <div class="modal-content" style="width:300px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <h2>Buscar Cliente</h2>
+            <input type="text" id="modal-search-input" placeholder="Cédula o Nombre (Enter para buscar)" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+            <div style="display:flex; gap:5px;">
+                <button id="btn-search-advisor" class="btn-primary" style="flex:1;"><i class="fas fa-user-tie"></i> Buscar por asesor</button>
+                <button id="btn-search-muni" class="btn-primary" style="flex:1;"><i class="fas fa-map-marker-alt"></i> Buscar por municipio</button>
+            </div>
+            <button id="btn-show-all-clients" class="btn-primary" style="margin-top: 5px;"><i class="fas fa-list"></i> Mostrar todos los clientes</button>
+            <button id="btn-close-search" class="btn-secondary" style="margin-top: 5px;"><i class="fas fa-times"></i> Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Buscar por Asesor -->
+    <div id="searchByAdvisorModal" class="modal" style="display:none; z-index: 2700;">
+        <div class="modal-content" style="width:300px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <h2>Buscar por Asesor</h2>
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Asesor:</label>
+            <select id="search-advisor-select" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;"></select>
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Municipio:</label>
+            <select id="search-advisor-muni-select" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;"></select>
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="btn-do-search-advisor" class="btn-primary" style="flex: 1;"><i class="fas fa-search"></i> Buscar</button>
+                <button id="btn-close-search-advisor" class="btn-secondary" style="flex: 1;"><i class="fas fa-times"></i> Cerrar</button>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Buscar por Municipio -->
+    <div id="searchByMuniModal" class="modal" style="display:none; z-index: 2700;">
+        <div class="modal-content" style="width:300px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <h2>Buscar por Municipio</h2>
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Departamento:</label>
+            <select id="search-muni-dept-select" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;"></select>
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Municipio:</label>
+            <select id="search-muni-muni-select" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;"></select>
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="btn-do-search-muni" class="btn-primary" style="flex: 1;"><i class="fas fa-search"></i> Buscar</button>
+                <button id="btn-close-search-muni" class="btn-secondary" style="flex: 1;"><i class="fas fa-times"></i> Cerrar</button>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Advertencia de Mora -->
+    <div id="warningMoraModal" class="modal" style="display:none; z-index: 2700;">
+        <div class="modal-content" style="width:300px; border: 2px solid red;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <h2 style="color:red;">Advertencia de Mora</h2>
+            <p>El cliente tiene <span id="mora-payments-count" style="font-weight:bold;"></span> pagos pendientes en un crédito activo. ¿Desea habilitar un nuevo cupo de todas formas?</p>
+            <p>Escriba "AUTORIZAR" para confirmar:</p>
+            <input type="text" id="mora-auth-input" placeholder="AUTORIZAR">
+            <button id="btn-mora-accept" disabled class="btn-primary"><i class="fas fa-check"></i> Aceptar y Continuar</button>
+            <button id="btn-mora-cancel" class="btn-primary"><i class="fas fa-times"></i> Cancelar</button>
+        </div>
+        </div>
+    </div>
+
+    <!-- Modal Habilitar Cupo Extra -->
+    <div id="enableQuotaModal" class="modal" style="display:none; z-index: 2800;">
+        <div class="modal-content" style="width:300px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <h2>Habilitar Cupo Extra</h2>
+            <p>Cliente: <span id="quota-client-name" style="font-weight:bold;"></span></p>
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Tipo de Pago:</label>
+            <label><input type="checkbox" class="quota-check" value="Diario"> Diario</label>
+            <label><input type="checkbox" class="quota-check" value="Semanal"> Semanal</label>
+            
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="btn-quota-confirm" class="btn-primary" style="flex: 1;"><i class="fas fa-check"></i> Confirmar</button>
+                <button id="btn-quota-cancel" class="btn-secondary" style="flex: 1;"><i class="fas fa-times"></i> Cancelar</button>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Unificado de Alertas (Represte y Segundo Pago) -->
+    <div id="unified-alert-modal" class="modal" style="display:none; z-index: 5000;">
+        <div class="modal-content" style="width:500px;">
+            <div style="background-color: #16233c; color: white; padding: 15px; text-align: center; font-weight: bold; position: relative;">
+                Notificaciones Pendientes
+                <span onclick="document.getElementById('unified-alert-modal').style.display='none'" style="position: absolute; right: 15px; top: 15px; cursor: pointer; font-size: 1.2em;">&times;</span>
+            </div>
+            
+            <!-- Sección Represte -->
+            <div id="unified-represt-section" style="flex: 1; padding: 15px; overflow-y: auto; border-bottom: 1px solid #eee; display: none;">
+                <h3 style="color: #3498db; margin-top: 0; font-size: 1.1em;">🔵 Solicitudes Represte</h3>
+                <div id="unified-represt-list"></div>
+            </div>
+
+            <!-- Sección Segundo Pago -->
+            <div id="unified-second-payment-section" style="flex: 1; padding: 15px; overflow-y: auto; display: none;">
+                <h3 style="color: #e67e22; margin-top: 0; font-size: 1.1em;">🟠 Solicitudes Segundo Pago</h3>
+                <div id="unified-second-payment-list"></div>
+            </div>
+
+            <div style="padding: 15px; background-color: #f8f9fa; text-align: center;">
+                <button id="btn-unified-view-clients" class="btn-primary" style="width: 100%;"><i class="fas fa-users"></i> Ver Clientes y Gestionar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Notificación Alertas Represte -->
+    <div id="alert-represt-notification-modal" class="modal" style="display:none; z-index: 5000;">
+        <div class="modal-content" style="width:400px; border-left: 5px solid #3498db;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 15px;">
+            <h3 style="color: #3498db; margin:0;">⚠️ Alertas Pendientes</h3>
+            <p>Existen solicitudes de pago para represte pendientes de aprobación.</p>
+            <div id="represt-alerts-list" style="overflow-y: auto; max-height: 300px; border: 1px solid #eee; padding: 10px; font-size: 0.9em;"></div>
+            <button id="btn-filter-represt-clients" class="btn-primary"><i class="fas fa-filter"></i> Ver Clientes</button>
+            <button onclick="document.getElementById('alert-represt-notification-modal').style.display='none'" class="btn-secondary"><i class="fas fa-times"></i> Cerrar</button>
+        </div>
+    </div>
+    </div>
+
+    <!-- Modal Notificación Alertas Segundo Pago -->
+    <div id="alert-second-payment-notification-modal" class="modal" style="display:none; z-index: 5000;">
+        <div class="modal-content" style="width:400px; border-left: 5px solid #e67e22;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 15px;">
+            <h3 style="color: #e67e22; margin:0;">⚠️ Alertas Segundo Pago</h3>
+            <p>Existen solicitudes de segundo pago pendientes de aprobación.</p>
+            <div id="second-payment-alerts-list" style="overflow-y: auto; max-height: 300px; border: 1px solid #eee; padding: 10px; font-size: 0.9em;"></div>
+            <button id="btn-filter-second-payment-clients" class="btn-primary"><i class="fas fa-filter"></i> Ver Clientes</button>
+            <button onclick="document.getElementById('alert-second-payment-notification-modal').style.display='none'" class="btn-secondary"><i class="fas fa-times"></i> Cerrar</button>
+        </div>
+    </div>
+    </div>
+
+    <!-- Modal Aprobar Represte -->
+    <div id="approve-represt-modal" class="modal" style="display:none; z-index: 5100;">
+        <div class="modal-content" style="width:300px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 15px;">
+            <h3>Aprobar Represte</h3>
+            <p>¿Autoriza el pago para este crédito represte?</p>
+            <button id="btn-confirm-represt" class="btn-primary"><i class="fas fa-check"></i> Autorizar</button>
+            <button id="btn-reject-represt" class="btn-primary"><i class="fas fa-times"></i> Rechazar</button>
+        </div>
+    </div>
+    </div>
+
+    <!-- Modal Reactivar Crédito (Cerrado) -->
+    <div id="reactivate-credit-modal" class="modal" style="display:none; z-index: 5100;">
+        <div class="modal-content" style="width:300px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 15px;">
+            <h3>Reactivar Crédito</h3>
+            <p>Este cliente tiene el crédito cerrado. ¿Desea reactivarlo para permitir nuevas operaciones?</p>
+            <button id="btn-confirm-reactivate" class="btn-primary"><i class="fas fa-power-off"></i> Reactivar</button>
+            <button onclick="document.getElementById('reactivate-credit-modal').style.display='none'" class="btn-primary"><i class="fas fa-times"></i> Cancelar</button>
+        </div>
+    </div>
+    </div>
+
+    <!-- Modal Cerrar Crédito (Manual) -->
+    <div id="close-credit-modal" class="modal" style="display:none; z-index: 5100;">
+        <div class="modal-content" style="width:300px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 15px;">
+            <h3>Cerrar Crédito</h3>
+            <p>¿Desea cerrar el crédito de este cliente? Esto impedirá nuevas operaciones hasta que se reactive.</p>
+            <button id="btn-confirm-close-credit" class="btn-primary"><i class="fas fa-lock"></i> Cerrar Crédito</button>
+            <button onclick="document.getElementById('close-credit-modal').style.display='none'" class="btn-primary"><i class="fas fa-times"></i> Cancelar</button>
+        </div>
+    </div>
+    </div>
+
+    <!-- Modal Aprobar Segundo Pago -->
+    <div id="approveSecondPaymentModal" class="modal" style="display:none; z-index: 5100;">
+        <div class="modal-content" style="width:300px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 15px;">
+            <h3>Aprobar segundo pago a credito del cliente</h3>
+            <button id="btn-confirm-second-payment" class="btn-primary"><i class="fas fa-check"></i> Aprobar</button>
+            <button id="btn-reject-second-payment" class="btn-primary"><i class="fas fa-times"></i> Rechazar</button>
+            <button onclick="document.getElementById('approveSecondPaymentModal').style.display='none'" class="btn-primary"><i class="fas fa-times"></i> Cancelar</button>
+        </div>
+    </div>
+    </div>
+
+    <!-- Modal Configuración Exportación (Principal) -->
+    <div id="export-report-modal" class="modal" style="display:none; z-index: 4000;">
+        <div style="background:white; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width:400px; max-width: 90%; display:flex; flex-direction:column; max-height: 90vh; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); overflow: hidden;">
+            <div class="modal-scrollable-content" style="padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
+            <h2>Exportar Reporte</h2>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Departamento:</label>
+            <select id="export-department" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px; width: 100%; box-sizing: border-box;"></select>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Municipio(s):</label>
+            <div style="position: relative;">
+                <input type="text" id="export-municipality-text" readonly placeholder="Seleccionar municipios..." style="cursor: pointer; padding: 10px; padding-right: 30px; background-color: white; border: 1px solid #ccc; border-radius: 5px; width: 100%; box-sizing: border-box; color: #333;">
+                <i class="fas fa-chevron-right" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #666; pointer-events: none;"></i>
+            </div>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Asesor:</label>
+            <select id="export-user" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px; width: 100%; box-sizing: border-box;"></select>
+            
+            <div style="background: #f8f9fa; padding: 10px; border: 1px solid #ddd; border-radius: 5px; margin-top: 5px;">
+                <label style="display:block; margin-bottom:5px; font-weight: bold; font-size: 0.9em; color: #333;">Periodo:</label>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <strong id="export-period-text" style="color: #007bff; font-size: 0.9em;">Todas las Fechas</strong>
+                    <button id="btn-open-export-date-modal" class="btn-primary" style="padding: 5px 10px; font-size: 0.8em;"><i class="fas fa-calendar-alt"></i> Cambiar</button>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="btn-export-action" class="btn-primary" style="flex: 1;"><i class="fas fa-file-export"></i> Exportar</button>
+                <button onclick="document.getElementById('export-report-modal').style.display='none'" class="btn-secondary" style="flex: 1;"><i class="fas fa-times"></i> Cancelar</button>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Selección de Municipios para Exportar -->
+    <div id="export-muni-selection-modal" class="modal" style="display:none; z-index: 4050;">
+        <div class="modal-content" style="width:320px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <h2>Seleccionar Municipios para Exportar</h2>
+            <div id="export-muni-container" style="border: 1px solid #ccc; padding: 10px; overflow-y: auto;">
+                <!-- Checkboxes will be populated here -->
+            </div>
+            <div style="display:flex; gap:10px;">
+                <button id="btn-confirm-export-muni" class="btn-primary" style="flex:1;"><i class="fas fa-check"></i> Confirmar</button>
+                <button onclick="document.getElementById('export-muni-selection-modal').style.display='none'" class="btn-secondary" style="flex:1;"><i class="fas fa-times"></i> Cancelar</button>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Filtro Fechas Exportación (Auxiliar) -->
+    <div id="export-date-filter-modal" class="modal" style="display:none; z-index: 4100;">
+        <div style="background:white; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width:300px; max-width: 90%; display:flex; flex-direction:column; max-height: 90vh; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); overflow: hidden;">
+            <div class="modal-scrollable-content" style="padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
+            <h3>Filtrar por Fecha</h3>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Día:</label>
+            <select id="export-day" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px; width: 100%; box-sizing: border-box;"></select>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Mes:</label>
+            <select id="export-month" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px; width: 100%; box-sizing: border-box;"></select>
+            
+            <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Año:</label>
+            <select id="export-year" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px; width: 100%; box-sizing: border-box;"></select>
+
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="btn-apply-export-date" class="btn-primary" style="flex: 1;"><i class="fas fa-check"></i> Aplicar</button>
+                <button onclick="document.getElementById('export-date-filter-modal').style.display='none'" class="btn-secondary" style="flex: 1;"><i class="fas fa-times"></i> Cancelar</button>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Registrar Link (Conexión) -->
+    <div id="linkProvisionModal" class="modal" style="display:none; z-index: 4500;">
+        <div class="modal-content" style="width:300px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <h2>Registrar Enlace</h2>
+            <p>Este enlace no ha sido configurado. Ingrese los datos para guardarlo.</p>
+            <input type="text" id="prov-link-name" placeholder="Nombre del Link" readonly style="background-color: #f0f0f0;">
+            <input type="text" id="prov-link-url" placeholder="URL (https://...)">
+            <button id="btn-save-provision-link" class="btn-primary"><i class="fas fa-save"></i> Guardar y Acceder</button>
+            <button onclick="document.getElementById('linkProvisionModal').style.display='none'" class="btn-primary"><i class="fas fa-times"></i> Cancelar</button>
+        </div>
+        </div>
+    </div>
+
+
+    <script src="functions.js"></script>
+</body>
+</html>
