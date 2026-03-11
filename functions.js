@@ -3655,18 +3655,23 @@ async function loadDashboardData(mode, isBackground = false) {
 
         // 2. Análisis Tabla de Créditos (Izquierda)
         // Consulta Principal: Debtors creados en el rango
-        const newCredits = debtors.filter(d => {
+        const processedCredits = debtors.filter(d => {
             // Filtro de fecha para los CREDITOS
             const debtCreatedAt = new Date(d.created_at);
-            return debtCreatedAt >= startDate && debtCreatedAt <= endDate;
-        });
+            if (debtCreatedAt < startDate || debtCreatedAt > endDate) return false;
 
-        // Procesamiento Créditos
-        // Procesa créditos que pasaron el filtro inicial
-        const processedCredits = newCredits.filter(d => { // AQUI
             // Exclusión de Importados
             if (d.imported === true) return false;
-            return true;
+
+            // Filtro por modo (Diario/Semanal)
+            const targetTerm = mode === 'daily' ? 'DIARIO' : 'SEMANAL';
+            const term = d.payment_term;
+            if (Array.isArray(term)) {
+                return term.some(t => String(t).toUpperCase() === targetTerm);
+            } else if (typeof term === 'string') {
+                return term.toUpperCase() === targetTerm;
+            }
+            return false; // No term, no valid
         });
 
         currentDashboardCreditosData = processedCredits; // Persistencia para descarga
