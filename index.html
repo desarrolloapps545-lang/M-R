@@ -116,8 +116,9 @@
             <h1>Gestión de Clientes</h1>
         </div>
         <div class="workspace-toolbar">
-            <button id="btn-multi-delete-mode" class="btn-primary"><i class="fas fa-tasks"></i> Eliminación múltiple</button>
+            <button id="btn-multi-delete-mode" class="btn-primary"><i class="fas fa-tasks"></i> Selección múltiple</button>
             <button id="btn-delete-selected" class="btn-primary" style="display:none;"><i class="fas fa-trash-alt"></i> Borrar (<span id="selected-count">0</span>)</button>
+            <button id="btn-mass-edit-clients" class="btn-primary" style="display:none;"><i class="fas fa-edit"></i> Editar (<span id="selected-count-edit">0</span>)</button>
             <button id="btn-search-client" class="btn-primary"><i class="fas fa-search"></i> Buscar Cliente</button>
             <button id="btn-new-client" class="btn-primary"><i class="fas fa-user-plus"></i> Nuevo Cliente</button>
         </div>
@@ -128,7 +129,7 @@
                         <th class="multi-delete-col" style="display:none;">Select</th>
                         <th>Cliente</th>
                         <th>Cédula</th>
-                        <th>Teléfono</th>
+                        <th>Asesor</th>
                         <th>Municipio</th>
                         <th>Estado Crédito</th>
                         <th>Acciones</th>
@@ -520,6 +521,30 @@
         </div>
     </div>
 
+    <!-- Modal Edición Masiva de Clientes -->
+    <div id="massEditClientModal" class="modal" style="display:none; z-index: 2950;">
+        <div class="modal-content" style="width:350px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+                <h2>Edición Masiva</h2>
+                <p style="font-size: 0.9em; color: #666;">Actualizará a <span id="mass-edit-count-display" style="font-weight:bold;">0</span> clientes y sus registros asociados (créditos y pagos).</p>
+
+                <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Departamento:</label>
+                <select id="mass-edit-dept" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;"></select>
+
+                <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Municipio:</label>
+                <select id="mass-edit-muni" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;"></select>
+
+                <label style="font-weight: bold; margin-bottom: -5px; font-size: 0.9em; color: #333;">Asesor:</label>
+                <select id="mass-edit-advisor" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px;"></select>
+
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <button id="btn-save-mass-edit-clients" class="btn-primary" style="flex: 1;"><i class="fas fa-save"></i> Actualizar Todo</button>
+                    <button onclick="document.getElementById('massEditClientModal').style.display='none'" class="btn-secondary" style="flex: 1;"><i class="fas fa-times"></i> Cancelar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal Editar Crédito -->
     <div id="editCreditModal" class="modal" style="display:none; z-index: 2600;">
         <div style="background:white; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width:400px; max-width: 90%; display:flex; flex-direction:column; max-height: 90vh; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); overflow: hidden;">
@@ -866,6 +891,16 @@
         </div>
     </div>
 
+    <!-- Modal Ver Municipios Asignados (Corrección de Bug) -->
+    <div id="view-assigned-municipalities-modal" class="modal" style="display:none; z-index: 3200;">
+        <div class="modal-content" style="width:300px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+                <h3>Municipios Asignados</h3>
+                <ul id="assigned-munis-list" style="padding-left: 20px; max-height: 200px; overflow-y: auto;"></ul>
+                <button id="btn-close-assigned-munis" class="btn-primary" style="margin-top: 10px;"><i class="fas fa-times"></i> Cerrar</button>
+            </div>
+        </div>
+    </div>
 
     <script src="functions.js"></script>
 </body>

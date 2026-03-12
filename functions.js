@@ -143,6 +143,14 @@ const btnQuotaCancel = document.getElementById('btn-quota-cancel');
 const btnMultiDeleteMode = document.getElementById('btn-multi-delete-mode');
 const btnDeleteSelected = document.getElementById('btn-delete-selected');
 const selectedCountSpan = document.getElementById('selected-count');
+const btnMassEditClients = document.getElementById('btn-mass-edit-clients');
+const selectedCountEditSpan = document.getElementById('selected-count-edit');
+const massEditClientModal = document.getElementById('massEditClientModal');
+const massEditCountDisplay = document.getElementById('mass-edit-count-display');
+const massEditDept = document.getElementById('mass-edit-dept');
+const massEditMuni = document.getElementById('mass-edit-muni');
+const massEditAdvisor = document.getElementById('mass-edit-advisor');
+const btnSaveMassEditClients = document.getElementById('btn-save-mass-edit-clients');
 const btnSearchClient = document.getElementById('btn-search-client');
 const btnNewClient = document.getElementById('btn-new-client');
 const btnImportExcel = document.getElementById('btn-import-excel');
@@ -1161,7 +1169,7 @@ async function renderClientsTable(clients) {
             <td class="multi-delete-col" style="display: ${multiDeleteDisplay}; text-align: center;"><input type="checkbox" class="client-select-cb" value="${client.cedula}" data-cedula="${client.cedula}" data-name="${client.name}"></td>
             <td>${client.name || ''}</td>
             <td>${client.cedula || ''}</td>
-            <td>${client.phone || ''}</td>
+            <td>${client.asesor_name || ''}</td>
             <td>${client.municipality || ''}</td>
             <td>${statusHtml}</td>
             <td>
@@ -1668,16 +1676,8 @@ usersTableBody.addEventListener('click', async (e) => {
             if (deptsData.length === 1) {
                 editDept.value = deptsData[0].id;
                 editDept.disabled = true;
-                selectedDeptData = deptsData[0];
             } else {
                 editDept.disabled = false;
-            }
-
-            // Guardar municipios disponibles del departamento seleccionado
-            if (selectedDeptData) {
-                currentDeptMunis = selectedDeptData.municipalities;
-            } else {
-                currentDeptMunis = [];
             }
 
             // Evento al cambiar departamento
@@ -1689,6 +1689,11 @@ usersTableBody.addEventListener('click', async (e) => {
                 editMuniCount.value = `0 municipios asignados`;
             };
             
+            // Si hay un solo depto, disparar el evento para cargar sus municipios
+            if (deptsData.length === 1) {
+                editDept.dispatchEvent(new Event('change'));
+            }
+
             editModal.style.display = 'block'; // Mostrar modal
         } else {
             hideLoading();
@@ -1796,10 +1801,6 @@ createUserBtn.addEventListener('click', async () => {
     if (deptsData.length === 1) {
         createDept.value = deptsData[0].id;
         createDept.disabled = true;
-        currentDeptMunis = deptsData[0].municipalities;
-    } else {
-        createDept.disabled = false;
-        currentDeptMunis = [];
     }
 
     // Lógica de Roles según permisos del Administrador actual
@@ -1843,6 +1844,12 @@ createUserBtn.addEventListener('click', async () => {
         createMuniCount.value = `0 seleccionados`;
     };
 
+    // Si hay un solo depto, disparar el evento para cargar sus municipios
+    if (deptsData.length === 1) {
+        createDept.dispatchEvent(new Event('change'));
+    } else {
+        createDept.disabled = false;
+    }
     createModal.style.display = 'block';
 });
 
@@ -2401,6 +2408,14 @@ if (btnExportMenu) {
                         exportSelectedMunis = [];
                         exportMunicipalityText.value = 'Ningún municipio seleccionado';
                     };
+
+                if (deptsData.length === 1) {
+                    exportDepartment.value = deptsData[0].id;
+                    exportDepartment.disabled = true;
+                    exportDepartment.dispatchEvent(new Event('change'));
+                } else {
+                    exportDepartment.disabled = false;
+                }
                 }
             } catch (e) { console.error(e); }
         }
@@ -2469,34 +2484,38 @@ exportMunicipalityText?.addEventListener('click', async () => {
 
         // Add "Select All" checkbox
         const selectAllLabel = document.createElement('label');
-        selectAllLabel.style.cssText = 'display: block; font-weight: bold; padding-bottom: 10px; border-bottom: 1px solid #ccc; cursor: pointer;';
+        selectAllLabel.style.cssText = 'display: flex; justify-content: space-between; align-items: center; font-weight: bold; padding: 10px 0; border-bottom: 1px solid #ccc; cursor: pointer;';
         const selectAllCheckbox = document.createElement('input');
         selectAllCheckbox.type = 'checkbox';
         selectAllCheckbox.id = 'export-muni-select-all';
-        selectAllCheckbox.style.marginRight = '8px';
         selectAllCheckbox.onchange = (e) => {
             exportMuniContainer.querySelectorAll('input.export-muni-cb').forEach(cb => {
                 cb.checked = e.target.checked;
             });
         };
+        const selectAllText = document.createElement('span');
+        selectAllText.textContent = 'Seleccionar Todos';
+        selectAllLabel.appendChild(selectAllText);
         selectAllLabel.appendChild(selectAllCheckbox);
-        selectAllLabel.appendChild(document.createTextNode('Seleccionar Todos'));
         exportMuniContainer.appendChild(selectAllLabel);
 
         // Add individual municipality checkboxes
         availableMunis.forEach(muni => {
             const label = document.createElement('label');
-            label.style.cssText = 'display: block; padding: 5px 0; cursor: pointer;';
+            label.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 8px 0; cursor: pointer;';
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
             checkbox.className = 'export-muni-cb';
             checkbox.value = muni;
-            checkbox.style.marginRight = '8px';
             if (exportSelectedMunis.includes('all') || exportSelectedMunis.includes(muni)) {
                 checkbox.checked = true;
             }
+
+            const muniText = document.createElement('span');
+            muniText.textContent = muni;
+
+            label.appendChild(muniText);
             label.appendChild(checkbox);
-            label.appendChild(document.createTextNode(' ' + muni));
             exportMuniContainer.appendChild(label);
         });
 
@@ -3129,51 +3148,14 @@ btnDeleteFullHistory?.addEventListener('click', async () => {
 });
 
 // --- Lógica Eliminación Múltiple ---
-btnMultiDeleteMode?.addEventListener('click', () => {
-    isMultiDeleteMode = !isMultiDeleteMode;
-    const cols = document.querySelectorAll('.multi-delete-col');
-    cols.forEach(col => col.style.display = isMultiDeleteMode ? 'table-cell' : 'none');
-    
-    // Lógica para botón "Seleccionar Todos"
-    let btnSelectAll = document.getElementById('btn-select-all-clients');
-    if (!btnSelectAll) {
-        btnSelectAll = document.createElement('button');
-        btnSelectAll.id = 'btn-select-all-clients';
-        btnSelectAll.className = 'btn-primary';
-        btnSelectAll.innerHTML = '<i class="fas fa-check-square"></i> Seleccionar Todos';
-        btnSelectAll.style.marginRight = '10px';
-        btnSelectAll.onclick = () => {
-            const checkboxes = document.querySelectorAll('.client-select-cb');
-            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
-            checkboxes.forEach(cb => cb.checked = !allChecked);
-            updateSelectedCount();
-            btnSelectAll.innerText = !allChecked ? 'Deseleccionar Todos' : 'Seleccionar Todos';
-        };
-        // Insertar antes del botón de borrar
-        btnDeleteSelected.parentNode.insertBefore(btnSelectAll, btnDeleteSelected);
-    }
-
-    if (isMultiDeleteMode) {
-        btnMultiDeleteMode.innerHTML = '<i class="fas fa-times"></i> Cancelar';
-        btnMultiDeleteMode.className = 'btn-primary';
-        btnMultiDeleteMode.style.backgroundColor = '';
-        btnDeleteSelected.style.display = 'inline-block';
-        btnSelectAll.style.display = 'inline-block';
-    } else {
-        btnMultiDeleteMode.innerHTML = '<i class="fas fa-tasks"></i> Eliminación múltiple';
-        btnMultiDeleteMode.className = 'btn-primary';
-        btnMultiDeleteMode.style.backgroundColor = '';
-        btnDeleteSelected.style.display = 'none';
-        btnSelectAll.style.display = 'none';
-        // Desmarcar todos
-        document.querySelectorAll('.client-select-cb').forEach(cb => cb.checked = false);
-        updateSelectedCount();
-    }
-});
+// El listener original para btnMultiDeleteMode fue eliminado para evitar conflictos.
+// La lógica ahora está centralizada en el manejador .onclick definido más abajo,
+// que gestiona tanto la eliminación como la edición masiva.
 
 function updateSelectedCount() {
     const count = document.querySelectorAll('.client-select-cb:checked').length;
     selectedCountSpan.innerText = count;
+    if (selectedCountEditSpan) selectedCountEditSpan.innerText = count;
 }
 
 btnDeleteSelected?.addEventListener('click', async () => {
@@ -3212,6 +3194,166 @@ btnDeleteSelected?.addEventListener('click', async () => {
     if (isMultiDeleteMode) btnMultiDeleteMode.click(); // Desactivar modo
     loadClientsTable(true);
     clientsTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center;">Clientes eliminados. Realice una búsqueda para ver los cambios.</td></tr>';
+});
+
+// --- Lógica Edición Masiva de Clientes ---
+
+// Manejador único para el botón de Selección Múltiple
+btnMultiDeleteMode.onclick = () => { // Usamos onclick para sobrescribir si ya se definió
+    isMultiDeleteMode = !isMultiDeleteMode;
+    const cols = document.querySelectorAll('.multi-delete-col');
+    cols.forEach(col => col.style.display = isMultiDeleteMode ? 'table-cell' : 'none');
+    
+    let btnSelectAll = document.getElementById('btn-select-all-clients');
+    if (!btnSelectAll) {
+        btnSelectAll = document.createElement('button');
+        btnSelectAll.id = 'btn-select-all-clients';
+        btnSelectAll.className = 'btn-primary';
+        btnSelectAll.innerHTML = '<i class="fas fa-check-square"></i> Seleccionar Todos';
+        btnSelectAll.style.marginRight = '10px';
+        btnSelectAll.onclick = () => {
+            const checkboxes = document.querySelectorAll('.client-select-cb');
+            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+            checkboxes.forEach(cb => cb.checked = !allChecked);
+            updateSelectedCount();
+            btnSelectAll.innerText = !allChecked ? 'Deseleccionar Todos' : 'Seleccionar Todos';
+        };
+        btnDeleteSelected.parentNode.insertBefore(btnSelectAll, btnDeleteSelected);
+    }
+
+    if (isMultiDeleteMode) {
+        btnMultiDeleteMode.innerHTML = '<i class="fas fa-times"></i> Cancelar';
+        btnMultiDeleteMode.className = 'btn-primary';
+        btnDeleteSelected.style.display = 'inline-block';
+        if(btnMassEditClients) btnMassEditClients.style.display = 'inline-block';
+        btnSelectAll.style.display = 'inline-block';
+    } else {
+        btnMultiDeleteMode.innerHTML = '<i class="fas fa-tasks"></i> Selección múltiple';
+        btnMultiDeleteMode.className = 'btn-primary';
+        btnDeleteSelected.style.display = 'none';
+        if(btnMassEditClients) btnMassEditClients.style.display = 'none';
+        btnSelectAll.style.display = 'none';
+        document.querySelectorAll('.client-select-cb').forEach(cb => cb.checked = false);
+        updateSelectedCount();
+    }
+};
+
+btnMassEditClients?.addEventListener('click', async () => {
+    const selected = document.querySelectorAll('.client-select-cb:checked');
+    if (selected.length === 0) return alert('Seleccione al menos un cliente.');
+
+    massEditCountDisplay.innerText = selected.length;
+
+    // Cargar Departamentos
+    const { data: deptsData } = await sbClient.from('municipalities').select('id, municipalities');
+    if (!deptsData) return alert('Error cargando departamentos');
+
+    massEditDept.innerHTML = '<option value="">Seleccione Departamento</option>';
+    massEditMuni.innerHTML = '<option value="">Seleccione primero Dept.</option>';
+    massEditAdvisor.innerHTML = '<option value="">Seleccione primero Muni.</option>';
+
+    deptsData.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = d.id;
+        massEditDept.appendChild(opt);
+    });
+
+    if (deptsData.length === 1) {
+        massEditDept.value = deptsData[0].id;
+        massEditDept.disabled = true;
+        massEditDept.dispatchEvent(new Event('change'));
+    } else {
+        massEditDept.disabled = false;
+    }
+
+    massEditDept.onchange = () => {
+        const dept = deptsData.find(d => d.id === massEditDept.value);
+        massEditMuni.innerHTML = '<option value="">Seleccione Municipio</option>';
+        if (dept) {
+            dept.municipalities.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                massEditMuni.appendChild(opt);
+            });
+        }
+    };
+
+    massEditMuni.onchange = async () => {
+        const muni = massEditMuni.value;
+        massEditAdvisor.innerHTML = '<option value="">Cargando...</option>';
+        if (!muni) return;
+        
+        const { data: users } = await sbClient.from('users').select('name')
+            .contains('assigned_municipality', [muni])
+            .neq('role', 'Administrador').neq('role', 'Administrador maestro').neq('role', 'Desarrollador');
+            
+        massEditAdvisor.innerHTML = '<option value="">Seleccione Asesor</option>';
+        if (users) {
+            users.forEach(u => {
+                const opt = document.createElement('option');
+                opt.value = u.name;
+                opt.textContent = u.name;
+                massEditAdvisor.appendChild(opt);
+            });
+        }
+    };
+
+    massEditClientModal.style.display = 'block';
+});
+
+btnSaveMassEditClients?.addEventListener('click', async () => {
+    const newDept = massEditDept.value;
+    const newMuni = massEditMuni.value;
+    const newAdvisor = massEditAdvisor.value;
+
+    if (!newMuni || !newAdvisor) return alert('Debe seleccionar Municipio y Asesor.');
+
+    const selected = Array.from(document.querySelectorAll('.client-select-cb:checked'));
+    const cedulas = selected.map(cb => cb.dataset.cedula);
+
+    if (!confirm(`¿Actualizar Municipio a "${newMuni}" y Asesor a "${newAdvisor}" para ${cedulas.length} clientes? Esto actualizará créditos y pagos también.`)) return;
+
+    btnSaveMassEditClients.disabled = true;
+    btnSaveMassEditClients.innerText = 'Actualizando...';
+
+    try {
+        // 1. Actualizar Clientes
+        const { error: clientErr } = await sbClient
+            .from('clients')
+            .update({ municipality: newMuni, asesor_name: newAdvisor })
+            .in('cedula', cedulas);
+        if (clientErr) throw new Error('Error en Clientes: ' + clientErr.message);
+
+        // 2. Actualizar Deudores (Créditos) - Cascade manual
+        const { error: debtorErr } = await sbClient
+            .from('debtors')
+            .update({ municipality: newMuni, asesor_name: newAdvisor })
+            .in('cedula', cedulas);
+        if (debtorErr) throw new Error('Error en Créditos: ' + debtorErr.message);
+
+        // 3. Actualizar Pagos - Cascade manual
+        // Nota: En payments la columna de asesor suele ser 'user_name'
+        const { error: payErr } = await sbClient
+            .from('payments')
+            .update({ municipality: newMuni, user_name: newAdvisor })
+            .in('cedula', cedulas);
+        if (payErr) throw new Error('Error en Pagos: ' + payErr.message);
+
+        alert('Actualización masiva exitosa.');
+        massEditClientModal.style.display = 'none';
+        
+        // Desactivar modo selección y recargar
+        if (isMultiDeleteMode) btnMultiDeleteMode.click();
+        loadClientsTable(true);
+
+    } catch (e) {
+        alert(e.message);
+    } finally {
+        btnSaveMassEditClients.disabled = false;
+        btnSaveMassEditClients.innerText = 'Actualizar Todo';
+    }
 });
 
 // --- Lógica Buscador ---
@@ -3392,18 +3534,31 @@ btnCloseSearchMuni.addEventListener('click', () => {
 });
 
 // --- Lógica Gestión de Municipios ---
-
 // Llenar selectores de departamentos con la lista interna
-function populateDeptSelects() {
+async function populateDeptSelects() {
+    const { data: deptsData, error } = await sbClient.from('municipalities').select('id');
+    if (error) {
+        console.error("Error fetching departments for muni management:", error);
+        return;
+    }
+
     const selects = [viewMuniDeptSelect, createMuniDeptSelect];
     selects.forEach(sel => {
+        if (!sel) return;
         sel.innerHTML = '<option value="">Seleccione Departamento</option>';
-        DEPARTAMENTOS_COLOMBIA.forEach(dept => {
+        deptsData.forEach(dept => {
             const opt = document.createElement('option');
-            opt.value = dept;
-            opt.textContent = dept;
+            opt.value = dept.id;
+            opt.textContent = dept.id;
             sel.appendChild(opt);
         });
+
+        if (deptsData.length === 1) {
+            sel.value = deptsData[0].id;
+            sel.disabled = true;
+        } else {
+            sel.disabled = false;
+        }
     });
 }
 
