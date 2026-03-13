@@ -122,6 +122,13 @@ const btnPgDateCancel = document.getElementById('btn-pg-date-cancel');
 const massEditDateModal = document.getElementById('massEditDateModal');
 const massNewDateInput = document.getElementById('mass-new-date-input');
 const btnConfirmMassDate = document.getElementById('btn-confirm-mass-date');
+
+// Referencias Modal Edición Masiva Créditos
+const massEditCrModal = document.getElementById('massEditCrModal');
+const massEditCrDateInput = document.getElementById('mass-edit-cr-date');
+const massEditCrInterestsInput = document.getElementById('mass-edit-cr-interests');
+const massEditCrInstallmentsInput = document.getElementById('mass-edit-cr-installments');
+const btnConfirmMassCrEdit = document.getElementById('btn-confirm-mass-cr-edit');
 // Referencias Modal Edición Individual Cobro
 const editPmModal = document.getElementById('editPmModal');
 const editPmDate = document.getElementById('edit-pm-date');
@@ -1479,15 +1486,59 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateCrSelectionState() {
         const selected = document.querySelectorAll('.cr-row-checkbox:checked');
         selectedCrIds = Array.from(selected).map(cb => cb.value);
-        btnMassEditCrDate.innerText = selectedCrIds.length > 0 ? `Editar Fechas (${selectedCrIds.length})` : 'Editar Fechas';
+        btnMassEditCrDate.innerHTML = selectedCrIds.length > 0 ? `<i class="fas fa-edit"></i> Edición Masiva (${selectedCrIds.length})` : '<i class="fas fa-edit"></i> Edición Masiva';
     }
 
     // Abrir modal edición masiva CR
     btnMassEditCrDate.addEventListener('click', () => {
         if (selectedCrIds.length === 0) return alert('Seleccione al menos un crédito.');
-        massEditContext = 'cr'; // Establecer contexto
-        massNewDateInput.value = '';
-        massEditDateModal.style.display = 'block';
+        // Resetear inputs del nuevo modal
+        massEditCrDateInput.value = '';
+        massEditCrInterestsInput.value = '';
+        massEditCrInstallmentsInput.value = '';
+        massEditCrModal.style.display = 'block';
+    });
+
+    // Guardar cambios de edición masiva de créditos
+    btnConfirmMassCrEdit.addEventListener('click', async () => {
+        const newDateVal = massEditCrDateInput.value;
+        const interestIncrease = parseFloat(massEditCrInterestsInput.value) || 0;
+        const installmentIncrease = parseInt(massEditCrInstallmentsInput.value) || 0;
+    
+        if (!newDateVal && interestIncrease === 0 && installmentIncrease === 0) {
+            return alert('No se ha especificado ningún cambio.');
+        }
+    
+        const count = selectedCrIds.length;
+        if (!confirm(`¿Está seguro de aplicar estos cambios a ${count} créditos?`)) return;
+    
+        btnConfirmMassCrEdit.disabled = true;
+        btnConfirmMassCrEdit.innerText = 'Actualizando...';
+    
+        try {
+            const { data: { session } } = await sbClient.auth.getSession();
+            const { error } = await sbClient.functions.invoke('mass-update-credits', {
+                body: { 
+                    credit_ids: selectedCrIds,
+                    interest_increase: interestIncrease,
+                    installment_increase: installmentIncrease,
+                    new_date: newDateVal || null
+                },
+                headers: { Authorization: `Bearer ${session?.access_token}` }
+            });
+
+            if (error) throw error;
+    
+            alert('Actualización masiva completada exitosamente.');
+            massEditCrModal.style.display = 'none';
+            generateCreditsReport(); // Refresh the table
+    
+        } catch (err) {
+            alert('Error durante la actualización masiva: ' + (err.context?.error_message || err.message));
+        } finally {
+            btnConfirmMassCrEdit.disabled = false;
+            btnConfirmMassCrEdit.innerText = 'Aplicar Cambios';
+        }
     });
 
     // Abrir modal edición individual CR

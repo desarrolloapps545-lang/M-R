@@ -150,6 +150,8 @@ const massEditCountDisplay = document.getElementById('mass-edit-count-display');
 const massEditDept = document.getElementById('mass-edit-dept');
 const massEditMuni = document.getElementById('mass-edit-muni');
 const massEditAdvisor = document.getElementById('mass-edit-advisor');
+const massEditInterests = document.getElementById('mass-edit-interests');
+const massEditInstallments = document.getElementById('mass-edit-installments');
 const btnSaveMassEditClients = document.getElementById('btn-save-mass-edit-clients');
 const btnSearchClient = document.getElementById('btn-search-client');
 const btnNewClient = document.getElementById('btn-new-client');
@@ -1293,7 +1295,7 @@ clientsTableBody.addEventListener('click', async (e) => {
             editClientFrequency.value = client.payment_term || 'Semanal';
 
             // Lógica de Departamento y Municipio
-            editClientDept.innerHTML = '<option value="">Seleccione Departamento</option>';
+            editClientDept.innerHTML = '<option value="" disabled selected>Seleccione Departamento</option>';
             
             deptsData.forEach(dept => {
                 const option = document.createElement('option');
@@ -1304,7 +1306,7 @@ clientsTableBody.addEventListener('click', async (e) => {
 
             // Función para cargar asesores según el municipio
             const loadAdvisors = async (muni) => {
-                editClientAdvisor.innerHTML = '<option value="">Seleccione Asesor</option>';
+                editClientAdvisor.innerHTML = '<option value="" disabled selected>Seleccione Asesor</option>';
                 if (!muni) return;
 
                 // Buscar usuarios que tengan este municipio asignado
@@ -1332,7 +1334,7 @@ clientsTableBody.addEventListener('click', async (e) => {
 
             // Función para cargar municipios en el select
             const loadMunisForClient = (deptId) => {
-                editClientMuni.innerHTML = '<option value="">Seleccione Municipio</option>';
+                editClientMuni.innerHTML = '<option value="" disabled selected>Seleccione Municipio</option>';
                 const dept = deptsData.find(d => d.id === deptId);
                 if (dept) {
                     dept.municipalities.forEach(muni => {
@@ -1375,7 +1377,7 @@ clientsTableBody.addEventListener('click', async (e) => {
             // Evento cambio de departamento
             editClientDept.onchange = () => {
                 loadMunisForClient(editClientDept.value);
-                editClientAdvisor.innerHTML = '<option value="">Seleccione Asesor</option>'; // Limpiar asesores
+                editClientAdvisor.innerHTML = '<option value="" disabled selected>Seleccione Asesor</option>'; // Limpiar asesores
             };
 
             // Evento cambio de municipio para actualizar asesores
@@ -1865,24 +1867,49 @@ createMuniCount?.addEventListener('click', () => {
 // Función reutilizable para abrir modal de municipios
 function openMuniModal() {
     muniContainer.innerHTML = '';
-    
+
     if (currentDeptMunis.length === 0) {
         alert('Por favor seleccione un departamento primero.');
         return;
     }
 
+    // Añadir checkbox "Seleccionar Todos"
+    const selectAllLabel = document.createElement('label');
+    selectAllLabel.style.cssText = 'display: grid; grid-template-columns: 1fr auto; align-items: center; font-weight: bold; padding: 8px 0; border-bottom: 1px solid #ccc; cursor: pointer; column-gap: 10px;';
+    const selectAllCheckbox = document.createElement('input');
+    selectAllCheckbox.type = 'checkbox';
+    selectAllCheckbox.onchange = (e) => {
+        muniContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            if (cb !== selectAllCheckbox) cb.checked = e.target.checked;
+        });
+    };
+    const selectAllText = document.createElement('span');
+    selectAllText.textContent = 'Seleccionar Todos';
+    selectAllLabel.appendChild(selectAllText);
+    selectAllLabel.appendChild(selectAllCheckbox);
+    muniContainer.appendChild(selectAllLabel);
+
     currentDeptMunis.forEach(muniName => {
         const label = document.createElement('label');
-        label.style.display = 'block';
+        label.style.cssText = 'display: grid; grid-template-columns: 1fr auto; align-items: center; padding: 8px 0; cursor: pointer; column-gap: 10px;';
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.value = muniName;
         checkbox.checked = tempSelectedMunis.includes(muniName);
-        
+
+        const muniText = document.createElement('span');
+        muniText.textContent = muniName;
+
+        label.appendChild(muniText);
         label.appendChild(checkbox);
-        label.appendChild(document.createTextNode(' ' + muniName));
         muniContainer.appendChild(label);
     });
+
+    // Marcar "Seleccionar Todos" si todos los municipios ya están seleccionados
+    const allMuniCheckboxes = Array.from(muniContainer.querySelectorAll('input[type="checkbox"]')).slice(1); // Omitir el de "Seleccionar Todos"
+    if (allMuniCheckboxes.length > 0 && allMuniCheckboxes.every(cb => cb.checked)) {
+        selectAllCheckbox.checked = true;
+    }
 
     muniModal.style.display = 'block';
 }
@@ -2293,7 +2320,7 @@ btnNewClient?.addEventListener('click', async () => {
     
     if (!deptsData) return alert('Error al cargar departamentos');
 
-    createClientDept.innerHTML = '<option value="">Seleccione Departamento</option>';
+    createClientDept.innerHTML = '<option value="" disabled selected>Seleccione Departamento</option>';
     deptsData.forEach(dept => {
         const option = document.createElement('option');
         option.value = dept.id;
@@ -2302,7 +2329,7 @@ btnNewClient?.addEventListener('click', async () => {
     });
 
     const loadMunis = (deptId) => {
-        createClientMuni.innerHTML = '<option value="">Seleccione Municipio</option>';
+        createClientMuni.innerHTML = '<option value="" disabled selected>Seleccione Municipio</option>';
         const dept = deptsData.find(d => d.id === deptId);
         if (dept) {
             dept.municipalities.forEach(muni => {
@@ -2315,7 +2342,7 @@ btnNewClient?.addEventListener('click', async () => {
     };
 
     const loadAdvisors = async (muni) => {
-        createClientAdvisor.innerHTML = '<option value="">Seleccione Asesor</option>';
+        createClientAdvisor.innerHTML = '<option value="" disabled selected>Seleccione Asesor</option>';
         if (!muni) return;
         const { data: advisors } = await sbClient.from('users').select('name').contains('assigned_municipality', [muni])
             .neq('role', 'Administrador').neq('role', 'Administrador maestro').neq('role', 'Desarrollador');
@@ -2339,7 +2366,7 @@ btnNewClient?.addEventListener('click', async () => {
 
     createClientDept.onchange = () => {
         loadMunis(createClientDept.value);
-        createClientAdvisor.innerHTML = '<option value="">Seleccione Asesor</option>';
+        createClientAdvisor.innerHTML = '<option value="" disabled selected>Seleccione Asesor</option>';
     };
 
     createClientMuni.onchange = () => {
@@ -2484,7 +2511,7 @@ exportMunicipalityText?.addEventListener('click', async () => {
 
         // Add "Select All" checkbox
         const selectAllLabel = document.createElement('label');
-        selectAllLabel.style.cssText = 'display: flex; justify-content: space-between; align-items: center; font-weight: bold; padding: 10px 0; border-bottom: 1px solid #ccc; cursor: pointer;';
+        selectAllLabel.style.cssText = 'display: grid; grid-template-columns: 1fr auto; align-items: center; font-weight: bold; padding: 10px 0; border-bottom: 1px solid #ccc; cursor: pointer; column-gap: 10px;';
         const selectAllCheckbox = document.createElement('input');
         selectAllCheckbox.type = 'checkbox';
         selectAllCheckbox.id = 'export-muni-select-all';
@@ -2502,7 +2529,7 @@ exportMunicipalityText?.addEventListener('click', async () => {
         // Add individual municipality checkboxes
         availableMunis.forEach(muni => {
             const label = document.createElement('label');
-            label.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 8px 0; cursor: pointer;';
+            label.style.cssText = 'display: grid; grid-template-columns: 1fr auto; align-items: center; padding: 8px 0; cursor: pointer; column-gap: 10px;';
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
             checkbox.className = 'export-muni-cb';
@@ -3248,9 +3275,11 @@ btnMassEditClients?.addEventListener('click', async () => {
     const { data: deptsData } = await sbClient.from('municipalities').select('id, municipalities');
     if (!deptsData) return alert('Error cargando departamentos');
 
-    massEditDept.innerHTML = '<option value="">Seleccione Departamento</option>';
-    massEditMuni.innerHTML = '<option value="">Seleccione primero Dept.</option>';
-    massEditAdvisor.innerHTML = '<option value="">Seleccione primero Muni.</option>';
+    massEditDept.innerHTML = '<option value="" disabled selected>Seleccione Departamento</option>';
+    massEditMuni.innerHTML = '<option value="" disabled selected>Seleccione primero Dept.</option>';
+    massEditAdvisor.innerHTML = '<option value="" disabled selected>Seleccione primero Muni.</option>';
+    if (massEditInterests) massEditInterests.value = '';
+    if (massEditInstallments) massEditInstallments.value = '';
 
     deptsData.forEach(d => {
         const opt = document.createElement('option');
@@ -3259,17 +3288,10 @@ btnMassEditClients?.addEventListener('click', async () => {
         massEditDept.appendChild(opt);
     });
 
-    if (deptsData.length === 1) {
-        massEditDept.value = deptsData[0].id;
-        massEditDept.disabled = true;
-        massEditDept.dispatchEvent(new Event('change'));
-    } else {
-        massEditDept.disabled = false;
-    }
-
+    // ASIGNAR EVENTOS PRIMERO
     massEditDept.onchange = () => {
         const dept = deptsData.find(d => d.id === massEditDept.value);
-        massEditMuni.innerHTML = '<option value="">Seleccione Municipio</option>';
+        massEditMuni.innerHTML = '<option value="" disabled selected>Seleccione Municipio</option>';
         if (dept) {
             dept.municipalities.forEach(m => {
                 const opt = document.createElement('option');
@@ -3289,7 +3311,7 @@ btnMassEditClients?.addEventListener('click', async () => {
             .contains('assigned_municipality', [muni])
             .neq('role', 'Administrador').neq('role', 'Administrador maestro').neq('role', 'Desarrollador');
             
-        massEditAdvisor.innerHTML = '<option value="">Seleccione Asesor</option>';
+        massEditAdvisor.innerHTML = '<option value="" disabled selected>Seleccione Asesor</option>';
         if (users) {
             users.forEach(u => {
                 const opt = document.createElement('option');
@@ -3300,6 +3322,15 @@ btnMassEditClients?.addEventListener('click', async () => {
         }
     };
 
+    // LUEGO, DISPARAR EL EVENTO SI ES NECESARIO
+    if (deptsData.length === 1) {
+        massEditDept.value = deptsData[0].id;
+        massEditDept.disabled = true;
+        massEditDept.dispatchEvent(new Event('change'));
+    } else {
+        massEditDept.disabled = false;
+    }
+
     massEditClientModal.style.display = 'block';
 });
 
@@ -3307,49 +3338,72 @@ btnSaveMassEditClients?.addEventListener('click', async () => {
     const newDept = massEditDept.value;
     const newMuni = massEditMuni.value;
     const newAdvisor = massEditAdvisor.value;
+    const interestIncrease = parseFloat(massEditInterests.value) || 0;
+    const installmentIncrease = parseInt(massEditInstallments.value) || 0;
 
-    if (!newMuni || !newAdvisor) return alert('Debe seleccionar Municipio y Asesor.');
+    if ((!newMuni || !newAdvisor) && interestIncrease === 0 && installmentIncrease === 0) {
+        return alert('No se ha especificado ningún cambio. Debe seleccionar Municipio y Asesor, o ingresar un valor para Intereses/Cuotas.');
+    }
 
     const selected = Array.from(document.querySelectorAll('.client-select-cb:checked'));
     const cedulas = selected.map(cb => cb.dataset.cedula);
 
-    if (!confirm(`¿Actualizar Municipio a "${newMuni}" y Asesor a "${newAdvisor}" para ${cedulas.length} clientes? Esto actualizará créditos y pagos también.`)) return;
+    let confirmMsg = `¿Está seguro de aplicar los cambios a ${cedulas.length} clientes y sus créditos activos?`;
+    if (newMuni && newAdvisor) {
+        confirmMsg += `\n- Municipio: ${newMuni}\n- Asesor: ${newAdvisor}`;
+    }
+    if (interestIncrease > 0) {
+        confirmMsg += `\n- Aumento Intereses: ${interestIncrease.toLocaleString()}`;
+    }
+    if (installmentIncrease > 0) {
+        confirmMsg += `\n- Aumento Cuotas: ${installmentIncrease}`;
+    }
+
+    if (!confirm(confirmMsg)) return;
 
     btnSaveMassEditClients.disabled = true;
     btnSaveMassEditClients.innerText = 'Actualizando...';
 
     try {
-        // 1. Actualizar Clientes
-        const { error: clientErr } = await sbClient
-            .from('clients')
-            .update({ municipality: newMuni, asesor_name: newAdvisor })
-            .in('cedula', cedulas);
-        if (clientErr) throw new Error('Error en Clientes: ' + clientErr.message);
+        // Task 1: Update location and advisor if provided
+        if (newMuni && newAdvisor) {
+            const { error: clientErr } = await sbClient.from('clients').update({ municipality: newMuni, asesor_name: newAdvisor }).in('cedula', cedulas);
+            if (clientErr) throw new Error('Error en Clientes: ' + clientErr.message);
 
-        // 2. Actualizar Deudores (Créditos) - Cascade manual
-        const { error: debtorErr } = await sbClient
-            .from('debtors')
-            .update({ municipality: newMuni, asesor_name: newAdvisor })
-            .in('cedula', cedulas);
-        if (debtorErr) throw new Error('Error en Créditos: ' + debtorErr.message);
+            const { error: debtorErr } = await sbClient.from('debtors').update({ municipality: newMuni, asesor_name: newAdvisor }).in('cedula', cedulas);
+            if (debtorErr) throw new Error('Error en Créditos: ' + debtorErr.message);
 
-        // 3. Actualizar Pagos - Cascade manual
-        // Nota: En payments la columna de asesor suele ser 'user_name'
-        const { error: payErr } = await sbClient
-            .from('payments')
-            .update({ municipality: newMuni, user_name: newAdvisor })
-            .in('cedula', cedulas);
-        if (payErr) throw new Error('Error en Pagos: ' + payErr.message);
+            const { error: payErr } = await sbClient.from('payments').update({ municipality: newMuni, user_name: newAdvisor }).in('cedula', cedulas);
+            if (payErr) throw new Error('Error en Pagos: ' + payErr.message);
+        }
+
+        // Task 2: Update interests and installments for active credits
+        if (interestIncrease > 0 || installmentIncrease > 0) {
+            const { data: activeCredits, error: fetchError } = await sbClient.from('debtors').select('debtor_number, interests, balance, remaining_payments, number_of_payments').in('cedula', cedulas).gt('balance', 0);
+            if (fetchError) throw new Error('Error al obtener créditos activos: ' + fetchError.message);
+
+            if (activeCredits && activeCredits.length > 0) {
+                const updates = activeCredits.map(credit => ({
+                    debtor_number: credit.debtor_number,
+                    interests: (parseFloat(credit.interests) || 0) + interestIncrease,
+                    balance: (parseFloat(credit.balance) || 0) + interestIncrease,
+                    remaining_payments: (parseInt(credit.remaining_payments) || 0) + installmentIncrease,
+                    number_of_payments: (parseInt(credit.number_of_payments) || 0) + installmentIncrease,
+                }));
+                const { error: updateError } = await sbClient.from('debtors').upsert(updates, { onConflict: 'debtor_number' });
+                if (updateError) throw new Error('Error al actualizar intereses/cuotas: ' + updateError.message);
+            }
+        }
 
         alert('Actualización masiva exitosa.');
         massEditClientModal.style.display = 'none';
         
-        // Desactivar modo selección y recargar
         if (isMultiDeleteMode) btnMultiDeleteMode.click();
         loadClientsTable(true);
+        clientsTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center;">Clientes actualizados. Realice una búsqueda para ver los cambios.</td></tr>';
 
     } catch (e) {
-        alert(e.message);
+        alert('Error durante la actualización: ' + e.message);
     } finally {
         btnSaveMassEditClients.disabled = false;
         btnSaveMassEditClients.innerText = 'Actualizar Todo';
