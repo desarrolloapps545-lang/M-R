@@ -1284,25 +1284,139 @@ document.addEventListener('DOMContentLoaded', () => {
         cell.querySelector('.history-table-container').innerHTML = tableHtml;
     };
 
-    btnDownloadPb.addEventListener('click', () => {
-        const dataToExport = currentPbReportData.map(row => ({
-            name: row.name,
-            municipality: row.municipality,
-            asesor_name: row.asesor_name,
-            saleDate: parseDateValue(row.saleDate), // Convertir a objeto Date
-            missedDate: row.dateStr.includes('Semana') ? row.dateStr : parseDateValue(row.dateStr),
-            nuevos: parseFloat(row.nuevos) || 0,
-            represtes: parseFloat(row.represtes) || 0,
-            valor_cuota: parseFloat(row.valor_cuota) || 0,
-            balance: parseFloat(row.balance) || 0
-        }));
+    btnDownloadPb.addEventListener('click', async () => {
+        if (!currentPbReportData || currentPbReportData.length === 0) {
+            return alert("No hay datos para exportar.");
+        }
 
-        const mapping = {
-            name: 'CLIENTE', municipality: 'MUNICIPIO', asesor_name: 'ASESOR',
-            saleDate: 'FECHA PRESTAMO', missedDate: 'FECHA FALTA', nuevos: 'NUEVOS',
-            represtes: 'REPRESTES', valor_cuota: 'VALOR CUOTA', balance: 'SALDO'
-        };
-        exportToExcel(dataToExport, 'Reporte_Comportamiento_Pago', mapping);
+        const mode = currentPbMode;
+        const refDate = pgDateState.end || new Date();
+
+        if (mode !== 'daily' && mode !== 'weekly') {
+            // Fallback to original simple export
+            const dataToExport = currentPbReportData.map(row => ({
+                name: row.name,
+                municipality: row.municipality,
+                asesor_name: row.asesor_name,
+                saleDate: parseDateValue(row.saleDate),
+                missedDate: row.dateStr.includes('Semana') ? row.dateStr : parseDateValue(row.dateStr),
+                nuevos: parseFloat(row.nuevos) || 0,
+                represtes: parseFloat(row.represtes) || 0,
+                valor_cuota: parseFloat(row.valor_cuota) || 0,
+                balance: parseFloat(row.balance) || 0
+            }));
+            const mapping = {
+                name: 'CLIENTE', municipality: 'MUNICIPIO', asesor_name: 'ASESOR',
+                saleDate: 'FECHA PRESTAMO', missedDate: 'FECHA FALTA', nuevos: 'NUEVOS',
+                represtes: 'REPRESTES', valor_cuota: 'VALOR CUOTA', balance: 'SALDO'
+            };
+            exportToExcel(dataToExport, 'Reporte_Comportamiento_Pago', mapping);
+            return;
+        }
+
+        // --- New logic for daily/weekly modes ---
+
+        // 1. Get all payments for all clients in the report.
+        const debtorIds = currentPbReportData.map(row => row.id);
+        const { data: allPayments, error: paymentsError } = await sbClient
+            .from('payments')
+            .select('debtor_number, payment_amount, payment_date, created_at')
+            .in('debtor_number', debtorIds);
+
+        if (paymentsError) {
+            console.error("Error fetching payments for export:", paymentsError);
+            return alert("Error al obtener historial de pagos.");
+        }
+
+        // 2. Group payments by debtor and sort them by date (desc)
+        const paymentsByDebtor = new Map();
+        (allPayments || []).forEach(p => {
+            const debtorId = p.debtor_number;
+            if (!paymentsByDebtor.has(debtorId)) {
+                paymentsByDebtor.set(debtorId, []);
+            }
+            const dateObj = parseDateValue(p.payment_date || p.created_at);
+            if (dateObj) {
+                dateObj.setHours(0, 0, 0, 0);
+                paymentsByDebtor.get(debtorId).push({
+                    date: dateObj,
+                    amount: Number(p.payment_amount) || 0
+                });
+            }
+        });
+        paymentsByDebtor.forEach(payments => payments.sort((a, b) => b.date - a.date));
+
+        // 3. Determine the date headers based on the mode
+        let sortedDateHeaders = [];
+        const allDates = new Set();
+
+        if (mode === 'daily') {
+            // Get all payment dates before or on the refDate
+            (allPayments || []).forEach(p => {
+                const dateObj = parseDateValue(p.payment_date || p.created_at);
+                if (dateObj && dateObj <= refDate) {
+                    dateObj.setHours(0, 0, 0, 0);
+                    allDates.add(dateObj.getTime());
+                }
+            });
+            
+            sortedDateHeaders = Array.from(allDates)
+                .map(time => new Date(time))
+                .sort((a, b) => b - a) // Descending to get the latest
+                .slice(0, 15)         // Take the last 15
+                .sort((a, b) => a - b); // Ascending for column order
+        } else { // weekly mode
+            const monthAgo = new Date(refDate);
+            monthAgo.setDate(monthAgo.getDate() - 30);
+
+            // For each client, get their last 4 payments within the window
+            paymentsByDebtor.forEach(payments => {
+                const clientPaymentsInWindow = payments.filter(p => p.date >= monthAgo && p.date <= refDate);
+                const last4 = clientPaymentsInWindow.slice(0, 4);
+                last4.forEach(p => allDates.add(p.date.getTime()));
+            });
+
+            sortedDateHeaders = Array.from(allDates).map(time => new Date(time)).sort((a, b) => a - b);
+        }
+
+        // 4. Build the Excel data
+        const baseHeaders = ['CLIENTE', 'MUNICIPIO', 'ASESOR', 'FECHA PRESTAMO', 'FECHA FALTA', 'NUEVOS', 'REPRESTES', 'VALOR CUOTA', 'SALDO'];
+        const finalHeaders = [...baseHeaders, ...sortedDateHeaders];
+
+        const dataRows = currentPbReportData.map(clientReportData => {
+            const clientPaymentHistory = paymentsByDebtor.get(clientReportData.id) || [];
+            const paymentMap = new Map(clientPaymentHistory.map(p => [p.date.getTime(), p.amount]));
+            
+            const baseRowData = [
+                clientReportData.name, clientReportData.municipality, clientReportData.asesor_name,
+                parseDateValue(clientReportData.saleDate),
+                clientReportData.dateStr.includes('Semana') ? clientReportData.dateStr : parseDateValue(clientReportData.dateStr),
+                parseFloat(clientReportData.nuevos) || 0, parseFloat(clientReportData.represtes) || 0,
+                parseFloat(clientReportData.valor_cuota) || 0, parseFloat(clientReportData.balance) || 0
+            ];
+            
+            const paymentRowData = sortedDateHeaders.map(headerDate => paymentMap.get(headerDate.getTime()) ?? '');
+            return [...baseRowData, ...paymentRowData];
+        });
+
+        // 5. Generate the Excel file
+        const sheetData = [finalHeaders, ...dataRows];
+        const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        for (let R = 0; R <= range.e.r; ++R) {
+            for (let C = 0; C <= range.e.c; ++C) {
+                const cell = ws[XLSX.utils.encode_cell({ c: C, r: R })];
+                if (cell && cell.v instanceof Date) {
+                    cell.t = 'd';
+                    cell.z = 'dd/mm/yyyy';
+                }
+            }
+        }
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Reporte");
+        XLSX.writeFile(wb, `Reporte_Comportamiento_Pago.xlsx`);
     });
 
     // ==========================================
