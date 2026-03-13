@@ -44,6 +44,7 @@ const crFilterMuni = document.getElementById('cr-filter-muni');
 const crFilterUser = document.getElementById('cr-filter-user');
 const btnGenerateCr = document.getElementById('btn-generate-cr');
 const btnDownloadCr = document.getElementById('btn-download-cr');
+const btnCrVencidos = document.getElementById('btn-cr-vencidos');
 const btnMassEditCrDate = document.getElementById('btn-mass-edit-cr-date');
 const crTableBody = document.getElementById('cr-table-body');
 const crTotalDisplay = document.getElementById('cr-total-display');
@@ -1475,8 +1476,86 @@ document.addEventListener('DOMContentLoaded', () => {
 
     btnGenerateCr.addEventListener('click', generateCreditsReport);
 
+    btnCrVencidos?.addEventListener('click', async () => {
+        if (!currentCrMode) {
+            alert('Por favor, seleccione un modo (Diario o Semanal) antes de buscar vencidos.');
+            return;
+        }
+
+        crTableBody.innerHTML = '<tr><td colspan="9" style="text-align: center;">Buscando créditos vencidos...</td></tr>';
+        crTotalDisplay.innerText = '$0';
+
+        try {
+            let query = sbClient
+                .from('debtors')
+                .select('*')
+                .gt('balance', 0);
+
+            const user = crFilterUser.value;
+            const muni = crFilterMuni.value;
+            const dept = crFilterDept.value;
+
+            if (user) {
+                query = query.eq('asesor_name', user);
+            }
+            if (muni) {
+                query = query.eq('municipality', muni);
+            } else if (dept) {
+                const { data: deptData } = await sbClient.from('municipalities').select('municipalities').eq('id', dept).single();
+                if (deptData && deptData.municipalities) {
+                    query = query.in('municipality', deptData.municipalities);
+                }
+            }
+
+            const { data: filteredCredits, error } = await query;
+
+            if (error) throw error;
+
+            if (!filteredCredits || filteredCredits.length === 0) {
+                crTableBody.innerHTML = '<tr><td colspan="9" style="text-align: center;">No se encontraron créditos activos con los filtros aplicados.</td></tr>';
+                return;
+            }
+
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const targetTerm = currentCrMode === 'weekly' ? 'SEMANAL' : 'DIARIO';
+
+            const vencidos = filteredCredits.filter(c => {
+                const pTerm = Array.isArray(c.payment_term) ? c.payment_term[0] : c.payment_term;
+                const termString = String(pTerm || '').toUpperCase();
+
+                if (termString !== targetTerm) return false;
+
+                const saleDate = parseDateValue(c.sale_date || c.created_at);
+                const numPayments = Number(c.number_of_payments) || 0;
+
+                if (saleDate && numPayments > 0 && pTerm) {
+                    let expirationDate = new Date(saleDate);
+
+                    if (termString === 'DIARIO') {
+                        expirationDate.setDate(expirationDate.getDate() + numPayments);
+                    } else if (termString === 'SEMANAL') {
+                        expirationDate.setDate(expirationDate.getDate() + (numPayments * 7));
+                    } else {
+                        return false;
+                    }
+                    return expirationDate < today;
+                }
+                return false;
+            });
+
+            currentCrReportData = vencidos;
+            renderCrTable(vencidos);
+            btnCrClearSearch.style.display = 'inline-block';
+
+        } catch (err) {
+            console.error("Error fetching overdue credits:", err);
+            crTableBody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: red;">Error al buscar créditos vencidos: ${err.message}</td></tr>`;
+        }
+    });
+
     async function generateCreditsReport() {
-        crTableBody.innerHTML = '<tr><td colspan="6">Cargando...</td></tr>';
+        crTableBody.innerHTML = '<tr><td colspan="9">Cargando...</td></tr>';
         crTotalDisplay.innerText = '$0';
         btnMassEditCrDate.style.display = 'none';
         document.getElementById('cr-select-all').checked = false;
@@ -1504,7 +1583,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const { data: credits, error } = await query;
 
         if (error) {
-            crTableBody.innerHTML = `<tr><td colspan="6">Error: ${error.message}</td></tr>`;
+            crTableBody.innerHTML = `<tr><td colspan="9">Error: ${error.message}</td></tr>`;
             return;
         }
 
@@ -1530,7 +1609,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let total = 0;
 
         if (!data || data.length === 0) {
-            crTableBody.innerHTML = '<tr><td colspan="8">No se encontraron registros.</td></tr>';
+            crTableBody.innerHTML = '<tr><td colspan="9">No se encontraron registros.</td></tr>';
             return;
         }
 
@@ -1543,6 +1622,42 @@ document.addEventListener('DOMContentLoaded', () => {
             total += val;
             const isNew = (c.credit_type || '').toLowerCase().includes('nuevo');
             const debtorId = c.debtor_number;
+
+            // Lógica de ESTADO (Semaforización)
+            let estado = 'GRIS';
+            let estadoColor = '#95a5a6'; // Gris por defecto
+            const pTerm = Array.isArray(c.payment_term) ? c.payment_term[0] : c.payment_term;
+            const remaining = Number(c.remaining_payments) || 0;
+            const saleDate = parseDateValue(c.sale_date || c.created_at);
+            const numPayments = Number(c.number_of_payments) || 0;
+            const saldo = Number(c.balance) || 0;
+
+            if (saleDate && numPayments > 0 && pTerm) {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                let expirationDate = new Date(saleDate);
+
+                if (String(pTerm).toUpperCase() === 'DIARIO') {
+                    expirationDate.setDate(expirationDate.getDate() + numPayments);
+                } else if (String(pTerm).toUpperCase() === 'SEMANAL') {
+                    expirationDate.setDate(expirationDate.getDate() + (numPayments * 7));
+                }
+
+                if (expirationDate < today && saldo > 0) {
+                    estado = 'ROJO';
+                    estadoColor = '#e74c3c';
+                }
+            }
+
+            if (estado !== 'ROJO') {
+                if ((String(pTerm).toUpperCase() === 'DIARIO' && remaining === 1) || (String(pTerm).toUpperCase() === 'SEMANAL' && remaining === 5)) {
+                    estado = 'VERDE';
+                    estadoColor = '#2ecc71';
+                } else if ((String(pTerm).toUpperCase() === 'DIARIO' && saldo === 20000) || (String(pTerm).toUpperCase() === 'SEMANAL' && saldo === 40000)) {
+                    estado = 'AMARILLO';
+                    estadoColor = '#f1c40f';
+                }
+            }
             
             const row = document.createElement('tr');
             row.innerHTML = `
@@ -1553,6 +1668,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${c.municipality || ''}</td>
                 <td>${isNew ? '$' + val.toLocaleString() : '-'}</td>
                 <td>${!isNew ? '$' + val.toLocaleString() : '-'}</td>
+                <td style="text-align: center;">
+                    <span style="background-color: ${estadoColor}; color: white; padding: 4px 8px; border-radius: 12px; font-weight: bold; font-size: 0.85em;">
+                        ${estado}
+                    </span>
+                </td>
                 <td>
                     <button class="btn-action-small btn-primary" onclick="openCrEditModal('${debtorId}')" title="Editar Crédito"><i class="fas fa-pencil-alt"></i></button>
                 </td>
@@ -1717,14 +1837,49 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     btnDownloadCr.addEventListener('click', () => {
-        const dataToExport = currentCrReportData.map(c => ({
-            name: c.name,
-            fecha: parseDateValue(c.created_at),
-            asesor_name: c.asesor_name,
-            municipality: c.municipality,
-            nuevo: (c.credit_type || '').toLowerCase().includes('nuevo') ? (parseFloat(c.sale_value) || 0) : 0,
-            represte: !(c.credit_type || '').toLowerCase().includes('nuevo') ? (parseFloat(c.sale_value) || 0) : 0
-        }));
+        const dataToExport = currentCrReportData.map(c => {
+            // Recalcular estado para el excel
+            let estado = 'GRIS';
+            const pTerm = Array.isArray(c.payment_term) ? c.payment_term[0] : c.payment_term;
+            const remaining = Number(c.remaining_payments) || 0;
+            const saleDate = parseDateValue(c.sale_date || c.created_at);
+            const numPayments = Number(c.number_of_payments) || 0;
+            const saldo = Number(c.balance) || 0;
+
+            if (saleDate && numPayments > 0 && pTerm) {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                let expirationDate = new Date(saleDate);
+
+                if (String(pTerm).toUpperCase() === 'DIARIO') {
+                    expirationDate.setDate(expirationDate.getDate() + numPayments);
+                } else if (String(pTerm).toUpperCase() === 'SEMANAL') {
+                    expirationDate.setDate(expirationDate.getDate() + (numPayments * 7));
+                }
+
+                if (expirationDate < today && saldo > 0) {
+                    estado = 'ROJO';
+                }
+            }
+
+            if (estado !== 'ROJO') {
+                if ((String(pTerm).toUpperCase() === 'DIARIO' && remaining === 1) || (String(pTerm).toUpperCase() === 'SEMANAL' && remaining === 5)) {
+                    estado = 'VERDE';
+                } else if ((String(pTerm).toUpperCase() === 'DIARIO' && saldo === 20000) || (String(pTerm).toUpperCase() === 'SEMANAL' && saldo === 40000)) {
+                    estado = 'AMARILLO';
+                }
+            }
+
+            return {
+                name: c.name,
+                fecha: parseDateValue(c.created_at),
+                asesor_name: c.asesor_name,
+                municipality: c.municipality,
+                nuevo: (c.credit_type || '').toLowerCase().includes('nuevo') ? (parseFloat(c.sale_value) || 0) : 0,
+                represte: !(c.credit_type || '').toLowerCase().includes('nuevo') ? (parseFloat(c.sale_value) || 0) : 0,
+                estado: estado
+            };
+        });
 
         const mapping = {
             name: 'CLIENTE',
@@ -1732,7 +1887,8 @@ document.addEventListener('DOMContentLoaded', () => {
             asesor_name: 'ASESOR',
             municipality: 'MUNICIPIO',
             nuevo: 'NUEVO',
-            represte: 'REPRESTE'
+            represte: 'REPRESTE',
+            estado: 'ESTADO'
         };
         exportToExcel(dataToExport, 'Reporte_Creditos', mapping);
     });

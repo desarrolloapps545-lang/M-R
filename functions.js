@@ -177,6 +177,16 @@ const searchMuniDeptSelect = document.getElementById('search-muni-dept-select');
 const searchMuniMuniSelect = document.getElementById('search-muni-muni-select');
 const btnDoSearchMuni = document.getElementById('btn-do-search-muni');
 const btnCloseSearchMuni = document.getElementById('btn-close-search-muni');
+// Referencias Modal Créditos Vencidos
+const btnSearchExpired = document.getElementById('btn-search-expired');
+const expiredCreditsFilterModal = document.getElementById('expiredCreditsFilterModal');
+const expiredCreditsDeptSelect = document.getElementById('expired-credits-dept-select');
+const expiredCreditsMuniSelect = document.getElementById('expired-credits-muni-select');
+const expiredCreditsAdvisorSelect = document.getElementById('expired-credits-advisor-select');
+const btnFilterExpiredDaily = document.getElementById('btn-filter-expired-daily');
+const btnFilterExpiredWeekly = document.getElementById('btn-filter-expired-weekly');
+const btnFilterExpiredAll = document.getElementById('btn-filter-expired-all');
+const btnCancelExpiredFilter = document.getElementById('btn-cancel-expired-filter');
 // Referencias Gestión Municipios
 const btnViewMunisSection = document.getElementById('btn-view-munis-section');
 const btnCreateMunisSection = document.getElementById('btn-create-munis-section');
@@ -3587,6 +3597,28 @@ btnCloseSearchMuni.addEventListener('click', () => {
     searchByMuniModal.style.display = 'none';
 });
 
+// --- Lógica Créditos Vencidos ---
+btnSearchExpired?.addEventListener('click', async () => {
+    searchClientModal.style.display = 'none';
+    await populateExpiredCreditsFilters();
+    expiredCreditsFilterModal.style.display = 'block';
+});
+
+btnCancelExpiredFilter?.addEventListener('click', () => {
+    expiredCreditsFilterModal.style.display = 'none';
+});
+
+btnFilterExpiredDaily?.addEventListener('click', () => {
+    filterExpiredCredits('DIARIO');
+});
+
+btnFilterExpiredWeekly?.addEventListener('click', () => {
+    filterExpiredCredits('SEMANAL');
+});
+
+btnFilterExpiredAll?.addEventListener('click', () => {
+    filterExpiredCredits('TODOS');
+});
 // --- Lógica Gestión de Municipios ---
 // Llenar selectores de departamentos con la lista interna
 async function populateDeptSelects() {
@@ -4529,6 +4561,146 @@ closeCreditPaymentsX?.addEventListener('click', () => {
     creditPaymentsModal.style.display = 'none';
 });
 
+async function populateExpiredCreditsFilters() {
+  // Reset selects
+  expiredCreditsDeptSelect.innerHTML = '<option value="">Todos los Departamentos</option>';
+  expiredCreditsMuniSelect.innerHTML = '<option value="">Todos los Municipios</option>';
+  expiredCreditsAdvisorSelect.innerHTML = '<option value="">Todos los Asesores</option>';
+
+  // 1. Fetch all necessary data first
+  const { data: deptsData, error: deptsError } = await sbClient.from('municipalities').select('id, municipalities');
+  if (deptsError) {
+    console.error("Error loading departments for expired filter:", deptsError);
+    return;
+  }
+
+  // 2. DEFINE event listeners first to avoid race conditions
+  expiredCreditsDeptSelect.onchange = () => {
+    const selectedDeptId = expiredCreditsDeptSelect.value;
+    expiredCreditsMuniSelect.innerHTML = '<option value="">Todos los Municipios</option>';
+
+    if (selectedDeptId) {
+      const selectedDept = deptsData.find(d => d.id === selectedDeptId);
+      if (selectedDept) {
+        selectedDept.municipalities.forEach(muni => {
+          const opt = document.createElement('option');
+          opt.value = muni;
+          opt.textContent = muni;
+          expiredCreditsMuniSelect.appendChild(opt);
+        });
+      }
+    }
+    // Reset and trigger the next in the chain
+    expiredCreditsMuniSelect.value = "";
+    expiredCreditsMuniSelect.dispatchEvent(new Event('change'));
+  };
+
+  expiredCreditsMuniSelect.onchange = async () => {
+    const selectedMuni = expiredCreditsMuniSelect.value;
+    expiredCreditsAdvisorSelect.innerHTML = '<option value="">Todos los Asesores</option>';
+
+    let query = sbClient.from('users').select('name').eq('role', 'Usuario');
+    if (selectedMuni) {
+      query = query.contains('assigned_municipality', [selectedMuni]);
+    }
+
+    const { data: advisors, error } = await query.order('name');
+    if (!error) {
+      const uniqueAdvisorNames = new Set();
+      advisors.forEach(adv => uniqueAdvisorNames.add(adv.name));
+
+      uniqueAdvisorNames.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        expiredCreditsAdvisorSelect.appendChild(opt);
+      });
+    }
+  };
+
+  // 3. POPULATE the first dropdown
+  deptsData.forEach(dept => {
+    const option = document.createElement('option');
+    option.value = dept.id;
+    option.textContent = dept.id;
+    expiredCreditsDeptSelect.appendChild(option);
+  });
+
+  // 4. TRIGGER the cascade
+  if (deptsData.length === 1) {
+    expiredCreditsDeptSelect.value = deptsData[0].id;
+    expiredCreditsDeptSelect.disabled = true;
+    // This will trigger the onchange handler we just defined
+    expiredCreditsDeptSelect.dispatchEvent(new Event('change'));
+  } else {
+    expiredCreditsDeptSelect.disabled = false;
+    // This will trigger the muni onchange to load all advisors initially
+    expiredCreditsMuniSelect.dispatchEvent(new Event('change'));
+  }
+}
+
+async function filterExpiredCredits(frequency) {
+    expiredCreditsFilterModal.style.display = 'none';
+    clientsTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center;">Buscando créditos vencidos...</td></tr>';
+
+    // Get filter values
+    const selectedMuni = expiredCreditsMuniSelect.value;
+    const selectedAdvisor = expiredCreditsAdvisorSelect.value;
+
+    if (allDebtorsData.length === 0) {
+        await loadClientsTable(true); // Carga silenciosa si no hay datos
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const expiredCedulas = new Set();
+
+    allDebtorsData.forEach(d => {
+        // Filter by advisor
+        if (selectedAdvisor && d.asesor_name !== selectedAdvisor) {
+            return;
+        }
+        // Filter by municipality
+        if (selectedMuni && d.municipality !== selectedMuni) {
+            return;
+        }
+
+        const saldo = Number(d.balance) || 0;
+        if (saldo <= 0) return; // Omitir créditos saldados
+
+        const pTerm = Array.isArray(d.payment_term) ? d.payment_term[0] : d.payment_term;
+        const termString = String(pTerm || '').toUpperCase();
+
+        // Filtrar por frecuencia si no es 'TODOS'
+        if (frequency !== 'TODOS' && termString !== frequency) {
+            return;
+        }
+        
+        const saleDate = parseDateValue(d.sale_date || d.created_at);
+        const numPayments = Number(d.number_of_payments) || 0;
+
+        if (saleDate && numPayments > 0 && pTerm) {
+            let expirationDate = new Date(saleDate);
+
+            if (termString === 'DIARIO') {
+                expirationDate.setDate(expirationDate.getDate() + numPayments);
+            } else if (termString === 'SEMANAL') {
+                expirationDate.setDate(expirationDate.getDate() + (numPayments * 7));
+            } else {
+                return; // Omitir si no es diario o semanal
+            }
+
+            // La condición de "ROJO"
+            if (expirationDate < today) {
+                expiredCedulas.add(d.cedula);
+            }
+        }
+    });
+
+    const filteredClients = allClientsData.filter(client => expiredCedulas.has(client.cedula));
+    renderClientsTable(filteredClients);
+}
 // --- Función reutilizable para abrir detalles de cliente ---
 async function openClientDetails(clientCedula) {
     currentViewingClientCedula = clientCedula;

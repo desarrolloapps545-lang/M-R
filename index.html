@@ -638,6 +638,7 @@
                 <button id="btn-search-advisor" class="btn-primary" style="flex:1;"><i class="fas fa-user-tie"></i> Buscar por asesor</button>
                 <button id="btn-search-muni" class="btn-primary" style="flex:1;"><i class="fas fa-map-marker-alt"></i> Buscar por municipio</button>
             </div>
+            <button id="btn-search-expired" class="btn-danger" style="width: 100%;"><i class="fas fa-exclamation-triangle"></i> Créditos Vencidos</button>
             <button id="btn-show-all-clients" class="btn-primary" style="margin-top: 5px;"><i class="fas fa-list"></i> Mostrar todos los clientes</button>
             <button id="btn-close-search" class="btn-secondary" style="margin-top: 5px;"><i class="fas fa-times"></i> Cerrar</button>
             </div>
@@ -904,6 +905,32 @@
                 <h3>Municipios Asignados</h3>
                 <ul id="assigned-munis-list" style="padding-left: 20px; max-height: 200px; overflow-y: auto;"></ul>
                 <button id="btn-close-assigned-munis" class="btn-primary" style="margin-top: 10px;"><i class="fas fa-times"></i> Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Filtrar Créditos Vencidos -->
+    <div id="expiredCreditsFilterModal" class="modal" style="display:none; z-index: 5000;">
+        <div class="modal-content" style="width: 350px;">
+            <div class="modal-scrollable-content" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+                <h3>Filtrar Créditos Vencidos</h3>
+                <p>Seleccione los filtros y el tipo de crédito vencido que desea ver:</p>
+
+                <label>Departamento:</label>
+                <select id="expired-credits-dept-select"></select>
+
+                <label>Municipio:</label>
+                <select id="expired-credits-muni-select"></select>
+
+                <label>Asesor:</label>
+                <select id="expired-credits-advisor-select"></select>
+
+                <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+                    <button id="btn-filter-expired-daily" class="btn-primary" style="flex: 1;">Buscar Diarios</button>
+                    <button id="btn-filter-expired-weekly" class="btn-primary" style="flex: 1;">Buscar Semanales</button>
+                    <button id="btn-filter-expired-all" class="btn-primary" style="flex: 1;">Buscar Todos</button>
+                    <button id="btn-cancel-expired-filter" class="btn-secondary" style="flex: 1; margin-top: 15px;">Cancelar</button>
+                </div>
             </div>
         </div>
     </div>
