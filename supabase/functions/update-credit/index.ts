@@ -23,7 +23,7 @@ Deno.serve(async (req) => {
     // Actualizar el crédito en la tabla 'debtors'.
     const { error } = await supabase
       .from('debtors')
-      .update(updates)
+      .update({...updates})
       .eq('debtor_number', credit_id) // <-- LÍNEA CORREGIDA
 
     if (error) throw error

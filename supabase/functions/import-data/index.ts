@@ -82,7 +82,8 @@ Deno.serve(async (req) => {
                 remaining_payments: r.nroCuotas,
                 payment_term: [r.tipoPago],
                 imported: true,
-                created_at: r.fechaPrestamo || new Date().toISOString(), // Use FECHA PRESTAMO or now
+                //created_at: r.fechaPrestamo || new Date().toISOString(), // Use FECHA PRESTAMO or now
+                created_at: r.fechaPrestamo ? new Date(r.fechaPrestamo).toISOString() : new Date().toISOString(),
                 sale_date: r.fechaPrestamoClean
             })
             cedulasWithNewCredit.add(r.cedula)

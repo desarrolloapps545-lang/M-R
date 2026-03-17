@@ -1750,25 +1750,45 @@ document.addEventListener('DOMContentLoaded', () => {
         btnConfirmMassCrEdit.innerText = 'Actualizando...';
     
         try {
-            const { data: { session } } = await sbClient.auth.getSession();
-            const { error } = await sbClient.functions.invoke('mass-update-credits', {
-                body: { 
-                    credit_ids: selectedCrIds,
-                    interest_increase: interestIncrease,
-                    installment_increase: installmentIncrease,
-                    new_date: newDateVal || null
-                },
-                headers: { Authorization: `Bearer ${session?.access_token}` }
-            });
+            // 1. Obtener los créditos activos seleccionados para calcular los nuevos valores
+            const { data: activeCredits, error: fetchError } = await sbClient
+                .from('debtors')
+                .select('debtor_number, interests, balance, remaining_payments, number_of_payments, created_at')
+                .in('debtor_number', selectedCrIds);
 
-            if (error) throw error;
+            if (fetchError) throw fetchError;
+
+            if (activeCredits && activeCredits.length > 0) {
+                // 2. Mapear los datos incluyendo los campos obligatorios para el upsert (debtor_number y created_at)
+                const updates = activeCredits.map(credit => {
+                    const updateObj = {
+                        debtor_number: credit.debtor_number,
+                        interests: (parseFloat(credit.interests) || 0) + interestIncrease,
+                        balance: (parseFloat(credit.balance) || 0) + interestIncrease,
+                        created_at: credit.created_at, // Crucial para evitar el error de "null value violates not-null constraint"
+                        remaining_payments: (parseInt(credit.remaining_payments) || 0) + installmentIncrease,
+                        number_of_payments: (parseInt(credit.number_of_payments) || 0) + installmentIncrease
+                    };
+
+                    if (newDateVal) {
+                        const [y, m, d] = newDateVal.split('-');
+                        updateObj.sale_date = `${d}-${m}-${y}`;
+                        updateObj.created_at = new Date(parseInt(y), parseInt(m) - 1, parseInt(d), 12, 0, 0).toISOString();
+                    }
+                    return updateObj;
+                });
+
+                // 3. Ejecutar la actualización masiva directamente
+                const { error: updateError } = await sbClient.from('debtors').upsert(updates, { onConflict: 'debtor_number' });
+                if (updateError) throw updateError;
+            }
     
             alert('Actualización masiva completada exitosamente.');
             massEditCrModal.style.display = 'none';
             generateCreditsReport(); // Refresh the table
     
         } catch (err) {
-            alert('Error durante la actualización masiva: ' + (err.context?.error_message || err.message));
+            alert('Error durante la actualización masiva: ' + (err.message));
         } finally {
             btnConfirmMassCrEdit.disabled = false;
             btnConfirmMassCrEdit.innerText = 'Aplicar Cambios';

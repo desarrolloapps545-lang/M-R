@@ -1628,7 +1628,7 @@ usersTableBody.addEventListener('click', async (e) => {
             .select('name, cedula, email, assigned_municipality, role')
             .eq('id', userId)
             .single();
-
+           
         // 2. Obtener departamentos y municipios de la colección 'municipalities'
         const { data: deptsData, error: deptError } = await sbClient
             .from('municipalities')
@@ -3376,30 +3376,37 @@ btnSaveMassEditClients?.addEventListener('click', async () => {
 
     try {
         // Task 1: Update location and advisor if provided
-        if (newMuni && newAdvisor) {
+        if (newMuni && newAdvisor) { // No usar ||, deben existir ambos para actualizar
             const { error: clientErr } = await sbClient.from('clients').update({ municipality: newMuni, asesor_name: newAdvisor }).in('cedula', cedulas);
             if (clientErr) throw new Error('Error en Clientes: ' + clientErr.message);
 
-            const { error: debtorErr } = await sbClient.from('debtors').update({ municipality: newMuni, asesor_name: newAdvisor }).in('cedula', cedulas);
-            if (debtorErr) throw new Error('Error en Créditos: ' + debtorErr.message);
+            const { error: debtorErr } = await sbClient.from('debtors').update({ municipality: newMuni, asesor_name: newAdvisor }).in('cedula', cedulas)
+
+            if (debtorErr) throw new Error('Error en Créditos: ' + debtorErr.message)
 
             const { error: payErr } = await sbClient.from('payments').update({ municipality: newMuni, user_name: newAdvisor }).in('cedula', cedulas);
             if (payErr) throw new Error('Error en Pagos: ' + payErr.message);
         }
 
         // Task 2: Update interests and installments for active credits
-        if (interestIncrease > 0 || installmentIncrease > 0) {
-            const { data: activeCredits, error: fetchError } = await sbClient.from('debtors').select('debtor_number, interests, balance, remaining_payments, number_of_payments').in('cedula', cedulas).gt('balance', 0);
+        if (interestIncrease > 0 || installmentIncrease > 0) { // Al menos uno debe ser mayor a 0 para actualizar
+                const { data: activeCredits, error: fetchError } = await sbClient.from('debtors').select('debtor_number, interests, balance, remaining_payments, number_of_payments, created_at').in('cedula', cedulas).gt('balance', 0);
             if (fetchError) throw new Error('Error al obtener créditos activos: ' + fetchError.message);
 
             if (activeCredits && activeCredits.length > 0) {
-                const updates = activeCredits.map(credit => ({
-                    debtor_number: credit.debtor_number,
-                    interests: (parseFloat(credit.interests) || 0) + interestIncrease,
-                    balance: (parseFloat(credit.balance) || 0) + interestIncrease,
+                const updates = activeCredits.map(credit => {
+                  const newInterests = (parseFloat(credit.interests) || 0) + interestIncrease
+                  const newBalance = (parseFloat(credit.balance) || 0) + interestIncrease
+
+                  return {
+                        debtor_number: credit.debtor_number,
+                    interests: newInterests,
+                    balance: newBalance,
+                        created_at: credit.created_at,
                     remaining_payments: (parseInt(credit.remaining_payments) || 0) + installmentIncrease,
-                    number_of_payments: (parseInt(credit.number_of_payments) || 0) + installmentIncrease,
-                }));
+                    number_of_payments: (parseInt(credit.number_of_payments) || 0) + installmentIncrease
+                  };
+                });
                 const { error: updateError } = await sbClient.from('debtors').upsert(updates, { onConflict: 'debtor_number' });
                 if (updateError) throw new Error('Error al actualizar intereses/cuotas: ' + updateError.message);
             }
@@ -3407,8 +3414,7 @@ btnSaveMassEditClients?.addEventListener('click', async () => {
 
         alert('Actualización masiva exitosa.');
         massEditClientModal.style.display = 'none';
-        
-        if (isMultiDeleteMode) btnMultiDeleteMode.click();
+
         loadClientsTable(true);
         clientsTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center;">Clientes actualizados. Realice una búsqueda para ver los cambios.</td></tr>';
 
@@ -4298,6 +4304,7 @@ btnSaveEditCredit?.addEventListener('click', async () => {
     const updates = {
         sale_date: saleDateText,
         // created_at: saleDateISO, // Se comenta para no sobrescribir el timestamp original con texto
+        created_at: credit.created_at,
         sale_value: editCreditValue.value,
         interests: editCreditInterests.value,
         valor_cuota: editCreditQuota.value,
