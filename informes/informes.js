@@ -148,6 +148,7 @@ const editCrBalance = document.getElementById('edit-cr-balance');
 const editCrType = document.getElementById('edit-cr-type');
 const editCrTerm = document.getElementById('edit-cr-term');
 const editCrMunicipality = document.getElementById('edit-cr-municipality');
+const editCrRemainingInstallments = document.getElementById('edit-cr-remaining-installments');
 const editCrAdvisor = document.getElementById('edit-cr-advisor');
 const btnSaveCrEdit = document.getElementById('btn-save-cr-edit');
 const emptyStateMessage = document.getElementById('empty-state-message');
@@ -1758,6 +1759,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (fetchError) throw fetchError;
 
+            // Colección para actualizar reportes
+            const reportUpdates = [];
+
             if (activeCredits && activeCredits.length > 0) {
                 // 2. Mapear los datos incluyendo los campos obligatorios para el upsert (debtor_number y created_at)
                 const updates = activeCredits.map(credit => {
@@ -1770,6 +1774,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         number_of_payments: (parseInt(credit.number_of_payments) || 0) + installmentIncrease
                     };
 
+                    // Guardar para actualizar reporte original
+                    reportUpdates.push({ u: credit.asesor_name, d: credit.created_at }); // Asesor no viene en select arriba, hay que agregarlo o asumir filtro actual.
+                    // Mejor: Fetch asesor_name en el select
+                    
                     if (newDateVal) {
                         const [y, m, d] = newDateVal.split('-');
                         updateObj.sale_date = `${d}-${m}-${y}`;
@@ -1785,6 +1793,20 @@ document.addEventListener('DOMContentLoaded', () => {
     
             alert('Actualización masiva completada exitosamente.');
             massEditCrModal.style.display = 'none';
+            
+            // RECALCULAR CIERRES
+            // Fetch again to be sure of advisor names if needed, or use current filter if single user
+            const { data: updatedCreds } = await sbClient.from('debtors').select('asesor_name, created_at').in('debtor_number', selectedCrIds);
+            
+            if(updatedCreds) {
+                const uniquePairs = [...new Set(updatedCreds.map(c => JSON.stringify({u: c.asesor_name, d: c.created_at})))].map(s => JSON.parse(s));
+                
+                for(const pair of uniquePairs) {
+                    // Actualizar reporte de la fecha (sea nueva o vieja, ya esta en DB)
+                    await recalculateClosingReports(pair.u, new Date(pair.d));
+                }
+            }
+
             generateCreditsReport(); // Refresh the table
     
         } catch (err) {
@@ -1814,6 +1836,7 @@ document.addEventListener('DOMContentLoaded', () => {
         editCrBalance.value = credit.balance;
         editCrType.value = credit.credit_type || 'Nuevo';
         editCrTerm.value = (Array.isArray(credit.payment_term) ? credit.payment_term[0] : credit.payment_term) || 'Diario';
+        editCrRemainingInstallments.value = credit.remaining_payments || 0;
 
         // Cargar municipios y asesores
         const loadLocationData = async () => {
@@ -2222,6 +2245,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Nueva función para eliminar cobro desde el informe
     window.deletePmPayment = async (paymentId, amount, debtorNumber) => {
         if (!confirm('¿Está seguro de eliminar este cobro? El saldo del crédito aumentará.')) return;
+        
+        // Obtener datos para actualizar cierre
+        const { data: payData } = await sbClient
+            .from('payments')
+            .select('created_at, user_name')
+            .eq('payment_number', paymentId).single();
 
         try {
             // 1. Eliminar el pago
@@ -2243,6 +2272,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             alert('Cobro eliminado correctamente.');
             generatePmReport(); // Recargar tabla
+            
+            // Actualizar cierre
+            if (payData) await recalculateClosingReports(payData.user_name, new Date(payData.created_at));
         } catch (err) {
             alert(err.message);
         }
@@ -2286,6 +2318,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const currentBalance = parseFloat(debtor.balance) || 0;
             const newBalance = currentBalance - amountDifference;
 
+            // Obtener fecha/user antigua para actualizar reporte anterior si cambia
+            const oldDateISO = currentPmEditData.created_at;
+            const oldUser = currentPmEditData.user_name;
+            const wasChangedDate = newDate !== getLocalDateKey(parseDateValue(oldDateISO));
+            const wasChangedUser = newAdvisor !== oldUser;
+
             // 2. Preparar datos de fecha
             const [y, m, d] = newDate.split('-').map(Number);
             const newDateObj = new Date(y, m - 1, d, 12, 0, 0); // Hora 12 para evitar saltos de TZ
@@ -2318,9 +2356,17 @@ document.addEventListener('DOMContentLoaded', () => {
             alert('Cobro actualizado correctamente.');
             editPmModal.style.display = 'none';
             
+            // Actualizar reportes (Viejo y Nuevo)
+            if (wasChangedDate || wasChangedUser || amountDifference !== 0) {
+                await recalculateClosingReports(oldUser, new Date(oldDateISO)); // Actualizar origen
+                await recalculateClosingReports(newAdvisor, newDateObj); // Actualizar destino
+            }
+
+
             // Si estamos en la vista de Cierres (GN), refrescar el modal de detalles.
             // Si no, refrescar la tabla de Cobros (PM).
             if (gnReportBox.style.display === 'block' && currentReportContext.reportId) {
+                pendingReportUpdate = true;
                 openReportPaymentsDetails(currentReportContext.reportId, currentReportContext.userName, currentReportContext.dateStr, currentReportContext.mode);
             } else {
                 generatePmReport(); // Recargar
@@ -2336,6 +2382,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // Guardar edición individual CR (Edge Function)
     btnSaveCrEdit.addEventListener('click', async () => {
         if (!currentCrEditData) return;
+
+        // Forzar la bandera de actualización si estamos en la vista de cierres.
+        // Esto asegura que al cerrar el modal de detalles se pida la confirmación.
+        if (gnReportBox.style.display === 'block') {
+            pendingReportUpdate = true;
+        }
+
+        // Obtener datos antiguos
+        const oldDateISO = currentCrEditData.created_at;
+        const oldUser = currentCrEditData.asesor_name;
 
         // Preparar fecha DD-MM-YYYY
         let saleDateText = null;
@@ -2356,6 +2412,7 @@ document.addEventListener('DOMContentLoaded', () => {
             balance: editCrBalance.value,
             credit_type: editCrType.value,
             payment_term: [editCrTerm.value],
+            remaining_payments: editCrRemainingInstallments.value,
             municipality: editCrMunicipality.value,
             asesor_name: editCrAdvisor.value
         };
@@ -2363,11 +2420,11 @@ document.addEventListener('DOMContentLoaded', () => {
         btnSaveCrEdit.disabled = true;
         btnSaveCrEdit.innerText = 'Guardando...';
 
-        const { data: { session } } = await sbClient.auth.getSession();
-        const { error } = await sbClient.functions.invoke('update-credit', {
-            body: { credit_id: currentCrEditData.debtor_number, updates: updates },
-            headers: { Authorization: `Bearer ${session?.access_token}` }
-        });
+        // Actualización directa a la base de datos (más rápida y fiable)
+        const { error } = await sbClient
+            .from('debtors')
+            .update(updates)
+            .eq('debtor_number', currentCrEditData.debtor_number);
 
         btnSaveCrEdit.disabled = false;
         btnSaveCrEdit.innerText = 'Guardar Cambios';
@@ -2376,9 +2433,14 @@ document.addEventListener('DOMContentLoaded', () => {
         alert('Crédito actualizado correctamente.');
         editCrModal.style.display = 'none';
         
+        // Actualizar reportes (Viejo y Nuevo)
+        if (oldDateISO) await recalculateClosingReports(oldUser, new Date(oldDateISO));
+        if (saleDateISO) await recalculateClosingReports(editCrAdvisor.value, new Date(saleDateISO));
+        
         // Si estamos en la vista de Cierres (GN), refrescar el modal de detalles.
         // Si no, refrescar la tabla de Créditos (CR).
         if (gnReportBox.style.display === 'block' && currentCreditsContext.reportId) {
+            pendingReportUpdate = true;
             openReportCreditsDetails(currentCreditsContext.reportId, currentCreditsContext.userName, currentCreditsContext.dateStr, currentCreditsContext.mode);
         } else {
             generateCreditsReport();
@@ -2407,9 +2469,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const monthStr = String(m).padStart(2, '0');
             const newDateText = `${dayStr}-${monthStr}-${y}`;
 
+            // Colección para actualizar reportes
+            const reportUpdates = [];
+
             let error = null;
 
             if (massEditContext === 'pm') {
+                // Obtener datos antes de actualizar para recalcular reportes antiguos
+                const { data: oldData } = await sbClient.from('payments').select('created_at, user_name').in('payment_number', selectedPmIds);
+                if(oldData) oldData.forEach(i => reportUpdates.push({ u: i.user_name, d: i.created_at }));
+                
                 // Actualizar Pagos
                 const res = await sbClient
                     .from('payments')
@@ -2417,7 +2486,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     .in('payment_number', selectedPmIds);
                 error = res.error;
             } else if (massEditContext === 'cr') {
-                // Actualizar Créditos
+                // Obtener datos antes
+                const { data: oldData } = await sbClient.from('debtors').select('created_at, asesor_name').in('debtor_number', selectedCrIds);
+                if(oldData) oldData.forEach(i => reportUpdates.push({ u: i.asesor_name, d: i.created_at }));
+
                 const res = await sbClient
                     .from('debtors')
                     .update({ sale_date: newDateText, created_at: newDateISO })
@@ -2430,6 +2502,18 @@ document.addEventListener('DOMContentLoaded', () => {
             alert('Fechas actualizadas correctamente.');
             massEditDateModal.style.display = 'none';
             
+            // 1. Recalcular cierres de las fechas/usuarios ORIGINALES
+            const uniqueOld = [...new Set(reportUpdates.map(i => JSON.stringify(i)))].map(s => JSON.parse(s));
+            for (const item of uniqueOld) {
+                await recalculateClosingReports(item.u, new Date(item.d));
+            }
+            
+            // 2. Recalcular cierres para la NUEVA fecha (para cada usuario afectado)
+            const uniqueUsers = [...new Set(reportUpdates.map(i => i.u))];
+            for (const u of uniqueUsers) {
+                await recalculateClosingReports(u, newDateObj);
+            }
+
             if (massEditContext === 'pm') generatePmReport();
             else generateCreditsReport();
 
@@ -2911,6 +2995,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Nueva función para eliminar crédito desde detalles de cierre
     window.deleteCreditFromDetails = async (debtorNumber) => {
         if (!confirm('¿Está seguro de eliminar este crédito y TODOS sus pagos asociados? Esta acción es irreversible y afectará el cierre.')) return;
+        
+        // Obtener datos para actualizar cierre antes de borrar
+        const { data: creditData } = await sbClient
+            .from('debtors')
+            .select('created_at, asesor_name')
+            .eq('debtor_number', debtorNumber)
+            .single();
 
         try {
             // 1. Eliminar pagos asociados
@@ -2923,6 +3014,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // 3. Marcar cambio pendiente y refrescar
             pendingReportUpdate = true;
             alert('Crédito eliminado. Cierre el modal para recalcular el reporte.');
+            
+            // Forzar actualización inmediata del cierre en BD
+            if (creditData) await recalculateClosingReports(creditData.asesor_name, new Date(creditData.created_at));
 
             // Refrescar la vista del modal
             const { reportId, userName, dateStr, mode } = currentCreditsContext;
@@ -3119,6 +3213,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Nueva función para eliminar cobro desde detalles de cierre
     window.deletePaymentFromDetails = async (paymentId, amount, debtorNumber) => {
         if (!confirm('¿Está seguro de eliminar este cobro? El saldo del crédito aumentará y se afectará el cierre.')) return;
+        
+        // Obtener datos para actualizar cierre antes de borrar
+        const { data: payData } = await sbClient
+            .from('payments')
+            .select('created_at, user_name')
+            .eq('payment_number', paymentId).single();
 
         try {
             // 1. Eliminar el pago
@@ -3138,6 +3238,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // 3. Marcar cambio pendiente y refrescar
             pendingReportUpdate = true;
             alert('Cobro eliminado. Cierre el modal para recalcular el reporte.');
+            
+            // Forzar actualización inmediata del cierre en BD
+            if (payData) await recalculateClosingReports(payData.user_name, new Date(payData.created_at));
 
             // Refrescar la vista del modal
             const { reportId, userName, dateStr, mode } = currentCreditsContext;
@@ -3356,8 +3459,14 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.onclick = async () => {
             btn.innerText = "Procesando...";
             btn.disabled = true;
-            await onConfirm();
-            modal.style.display = 'none';
+            try {
+                await onConfirm();
+                modal.style.display = 'none';
+            } catch (err) {
+                alert('Ocurrió un error al procesar la actualización: ' + err.message);
+                btn.innerText = "Aceptar";
+                btn.disabled = false;
+            }
         };
         
         modal.style.display = 'flex';
@@ -3431,6 +3540,75 @@ document.addEventListener('DOMContentLoaded', () => {
     // Inicializar la primera vista de reporte
     // btnReportPg.click(); // Eliminado para mostrar estado vacío inicial
 });
+
+// --- Función Global para Recalcular Cierres (Diario/Semanal) ---
+async function recalculateClosingReports(userName, targetDate) {
+    if (!userName || !targetDate) return;
+    const dateObj = new Date(targetDate);
+    if (isNaN(dateObj.getTime())) return;
+
+    // Helper para sumar
+    const getSum = async (table, col, start, end) => {
+        const { data } = await sbClient.from(table).select(col)
+            .eq(table === 'debtors' ? 'asesor_name' : 'user_name', userName)
+            .gte('created_at', start)
+            .lte('created_at', end);
+        return (data || []).reduce((sum, item) => sum + (parseFloat(item[col]) || 0), 0);
+    };
+
+    // 1. ACTUALIZAR REPORTE DIARIO
+    const startDay = new Date(dateObj); startDay.setHours(0,0,0,0);
+    const endDay = new Date(dateObj); endDay.setHours(23,59,59,999);
+    
+    const { data: dReports } = await sbClient.from('reports').select('*')
+        .eq('user_name', userName)
+        .gte('created_at', startDay.toISOString())
+        .lte('created_at', endDay.toISOString());
+
+    if (dReports && dReports.length > 0) {
+        for (const rep of dReports) {
+            const paySum = await getSum('payments', 'payment_amount', startDay.toISOString(), endDay.toISOString());
+            const credSum = await getSum('debtors', 'sale_value', startDay.toISOString(), endDay.toISOString());
+            const expSum = await getSum('expenses', 'total_expenses', startDay.toISOString(), endDay.toISOString());
+            
+            const finalBase = (parseFloat(rep.initial_base) || 0) + paySum - (credSum + expSum);
+            
+            await sbClient.from('reports').update({
+                payments_report: paySum, credits_report: credSum, expense_report: expSum, final_base: finalBase,
+                ...(rep.og_final_base !== null ? { og_final_base: finalBase } : {}) 
+            }).eq('report_number', rep.report_number);
+        }
+    }
+
+    // 2. ACTUALIZAR REPORTE SEMANAL
+    const rangeStart = new Date(dateObj); 
+    const rangeEnd = new Date(dateObj); rangeEnd.setDate(rangeEnd.getDate() + 7);
+    
+    const { data: wReports } = await sbClient.from('wreports').select('*')
+        .eq('user_name', userName)
+        .gte('created_at', rangeStart.toISOString()).lte('created_at', rangeEnd.toISOString());
+
+    if (wReports && wReports.length > 0) {
+        for (const rep of wReports) {
+            const repDate = new Date(rep.created_at);
+            const wStart = new Date(repDate); wStart.setDate(wStart.getDate() - 6); wStart.setHours(0,0,0,0);
+            const wEnd = new Date(repDate); wEnd.setHours(23,59,59,999);
+            if (dateObj >= wStart && dateObj <= wEnd) {
+                const paySum = await getSum('payments', 'payment_amount', wStart.toISOString(), wEnd.toISOString());
+                const credSum = await getSum('debtors', 'sale_value', wStart.toISOString(), wEnd.toISOString());
+                const expSum = await getSum('wexpenses', 'total_expenses', wStart.toISOString(), wEnd.toISOString());
+                const finalBase = (parseFloat(rep.initial_base) || 0) + paySum - (credSum + expSum);
+                await sbClient.from('wreports').update({ payments_report: paySum, credits_report: credSum, expense_report: expSum, final_base: finalBase, ...(rep.og_final_base !== null ? { og_final_base: finalBase } : {}) }).eq('report_number', rep.report_number);
+            }
+        }
+    }
+
+    // FINAL STEP: Refresh the General Report view if it's currently active
+    if (document.getElementById('gn-report-box')?.style.display === 'block') {
+        console.log('Refreshing General Report (GN) view after background update.');
+        generateGnReport();
+    }
+}
 
 // --- Observer para bloquear scroll del body cuando hay modales abiertos ---
 const modalObserver = new MutationObserver(() => {

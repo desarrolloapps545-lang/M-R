@@ -2207,30 +2207,52 @@ saveEditClientBtn?.addEventListener('click', async () => {
     const newAdvisor = editClientAdvisor.value;
     const newFreq = editClientFrequency.value;
 
-    const clientUpdates = {
-        name: newName,
-        cedula: newCedula,
-        phone: newPhone,
-        address: newAddress,
-        municipality: newMuni,
-        asesor_name: newAdvisor,
-        payment_term: [newFreq]
-    };
+    saveEditClientBtn.disabled = true;
+    saveEditClientBtn.innerText = 'Guardando...';
 
-    const { data: { session } } = await sbClient.auth.getSession();
-    const { error } = await sbClient.functions.invoke('update-client', {
-        body: { client_id: currentClientEditCedula, updates: clientUpdates },
-        headers: { Authorization: `Bearer ${session?.access_token}` }
-    });
+    try {
+        // 1. Actualizar Cliente
+        const { error: clientError } = await sbClient.from('clients').update({
+            name: newName,
+            cedula: newCedula,
+            phone: newPhone,
+            address: newAddress,
+            municipality: newMuni,
+            asesor_name: newAdvisor,
+            payment_term: [newFreq]
+        }).eq('cedula', currentClientEditCedula);
 
-    if (error) {
-        console.error('Error en actualización:', error);
-        alert('Error al actualizar cliente: ' + error.message);
-    } else {
+        if (clientError) throw new Error('Error actualizando cliente: ' + clientError.message);
+
+        // 2. Actualizar Deudores (Información denormalizada)
+        const { error: debtorsError } = await sbClient.from('debtors').update({
+            name: newName,
+            municipality: newMuni,
+            asesor_name: newAdvisor,
+            phone: newPhone,
+            address: newAddress
+        }).eq('cedula', newCedula); 
+
+        // 3. Actualizar Pagos (Información denormalizada)
+        await sbClient.from('payments').update({
+            debtor_name: newName,
+            municipality: newMuni,
+            user_name: newAdvisor, // En pagos se usa user_name para el asesor
+            phone: newPhone,
+            address: newAddress
+        }).eq('cedula', newCedula);
+
         alert('Cliente y registros asociados actualizados correctamente.');
         editClientModal.style.display = 'none';
         loadClientsTable(true);
         clientsTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center;">Cliente actualizado. Realice una búsqueda para ver los cambios.</td></tr>';
+
+    } catch (error) {
+        console.error('Error en actualización:', error);
+        alert('Error al actualizar: ' + error.message);
+    } finally {
+        saveEditClientBtn.disabled = false;
+        saveEditClientBtn.innerText = 'Guardar';
     }
 });
 
@@ -4270,6 +4292,13 @@ clientCreditsTableBody.addEventListener('click', async (e) => {
     // 3. Botón Eliminar Crédito (Basura)
     if (target.classList.contains('btn-delete-credit-history')) {
         if (confirm('¿Está seguro de eliminar este crédito y TODOS sus pagos asociados? Esta acción no se puede deshacer.')) {
+            // Obtener datos para actualizar cierre antes de borrar
+            const { data: creditData } = await sbClient
+                .from('debtors')
+                .select('created_at, asesor_name')
+                .eq('debtor_number', debtorNumber)
+                .single();
+
             // Lógica de Eliminación en Cascada
             // 1. Eliminar pagos asociados (debtor_number)
             await sbClient.from('payments').delete().eq('debtor_number', debtorNumber);
@@ -4281,6 +4310,10 @@ clientCreditsTableBody.addEventListener('click', async (e) => {
                 alert('Error al eliminar crédito: ' + error.message);
             } else {
                 alert('Crédito eliminado correctamente.');
+                // Actualizar cierre
+                if (creditData) {
+                    await recalculateClosingReports(creditData.asesor_name, new Date(creditData.created_at));
+                }
                 // Recargar el modal de detalles del cliente para ver el cambio.
                 if (currentViewingClientCedula) openClientDetails(currentViewingClientCedula);
             }
@@ -4301,10 +4334,17 @@ btnSaveEditCredit?.addEventListener('click', async () => {
         }
     }
 
+    // Calcular created_at basado en la fecha seleccionada para mantener consistencia
+    let newCreatedAt = null;
+    if (editCreditDate.value) {
+        // Crear fecha a mediodía para evitar problemas de zona horaria
+        newCreatedAt = new Date(editCreditDate.value + 'T12:00:00').toISOString();
+    }
+
     const updates = {
         sale_date: saleDateText,
-        // created_at: saleDateISO, // Se comenta para no sobrescribir el timestamp original con texto
-        created_at: credit.created_at,
+        // Actualizar created_at si hay fecha, sino dejarlo (undefined no actualiza)
+        ...(newCreatedAt && { created_at: newCreatedAt }),
         sale_value: editCreditValue.value,
         interests: editCreditInterests.value,
         valor_cuota: editCreditQuota.value,
@@ -4320,15 +4360,20 @@ btnSaveEditCredit?.addEventListener('click', async () => {
     btnSaveEditCredit.innerText = 'Guardando...';
 
     try {
-        const { data: { session } } = await sbClient.auth.getSession();
-        
-        // 1. Actualizar Crédito (Edge Function)
-        const { error } = await sbClient.functions.invoke('update-credit', {
-            body: { credit_id: currentCreditEditNumber, updates: updates },
-            headers: { Authorization: `Bearer ${session?.access_token}` }
-        });
+        // 0. Obtener datos ANTIGUOS para actualizar el reporte de la fecha anterior si cambia
+        const { data: oldCredit } = await sbClient
+            .from('debtors')
+            .select('created_at, asesor_name')
+            .eq('debtor_number', currentCreditEditNumber)
+            .single();
 
-        if (error) throw new Error(error.message);
+        // 1. Actualizar Crédito Directamente
+        const { error } = await sbClient
+            .from('debtors')
+            .update(updates)
+            .eq('debtor_number', currentCreditEditNumber);
+
+        if (error) throw new Error('Error actualizando crédito: ' + error.message);
 
         // 2. Actualizar Pagos Asociados (Sincronizar datos)
         let clientInfo = {};
@@ -4352,6 +4397,12 @@ btnSaveEditCredit?.addEventListener('click', async () => {
         if (payError) console.warn('Error actualizando pagos:', payError);
 
         alert('Crédito y pagos asociados actualizados correctamente.');
+        
+        // Actualizar Cierres (Antiguo y Nuevo)
+        if (oldCredit) await recalculateClosingReports(oldCredit.asesor_name, new Date(oldCredit.created_at));
+        if (newCreatedAt) await recalculateClosingReports(editCreditAdvisor.value, new Date(newCreatedAt));
+        else if (oldCredit) await recalculateClosingReports(editCreditAdvisor.value, new Date(oldCredit.created_at)); // Si no cambio fecha pero cambio valor/asesor
+        
         editCreditModal.style.display = 'none';
         if (currentViewingClientCedula) openClientDetails(currentViewingClientCedula);
 
@@ -4470,6 +4521,13 @@ creditPaymentsBody.addEventListener('click', async (e) => {
         showLoading('transparent');
 
         try {
+            // Obtener datos antiguos para reporte
+            const { data: oldPaymentData } = await sbClient
+                .from('payments')
+                .select('created_at, user_name')
+                .eq('payment_number', paymentNumber)
+                .single();
+
             // 1. Calcular diferencia para ajustar saldo
             const diff = newAmount - oldAmount;
 
@@ -4521,6 +4579,13 @@ creditPaymentsBody.addEventListener('click', async (e) => {
 
             alert('Pago actualizado correctamente.');
             loadCreditPayments(currentCreditPaymentsNumber);
+            
+            // Actualizar Reportes (Antiguo y Nuevo)
+            if (oldPaymentData) await recalculateClosingReports(oldPaymentData.user_name, new Date(oldPaymentData.created_at));
+            if (newDateVal) {
+                 const [y, m, d] = newDateVal.split('-');
+                 await recalculateClosingReports(debtor.asesor_name || oldPaymentData?.user_name, new Date(y, m - 1, d));
+            }
 
         } catch (err) {
             console.error(err);
@@ -4533,6 +4598,13 @@ creditPaymentsBody.addEventListener('click', async (e) => {
     // Eliminar Pago
     if (target.classList.contains('btn-delete-payment')) {
         if (confirm('¿Eliminar este pago? El saldo del crédito aumentará.')) {
+            // Obtener datos para reporte antes de borrar
+            const { data: payData } = await sbClient
+                .from('payments')
+                .select('created_at, user_name')
+                .eq('payment_number', paymentNumber)
+                .single();
+
             // 1. Eliminar pago
             const { error } = await sbClient.from('payments').delete().eq('payment_number', paymentNumber);
             
@@ -4560,6 +4632,9 @@ creditPaymentsBody.addEventListener('click', async (e) => {
             }
 
             loadCreditPayments(currentCreditPaymentsNumber);
+            
+            // Actualizar cierre
+            if (payData) await recalculateClosingReports(payData.user_name, new Date(payData.created_at));
         }
     }
 });
@@ -4770,6 +4845,69 @@ async function openClientDetails(clientCedula) {
                 `;
                 tbody.appendChild(row);
             });
+        }
+    }
+}
+
+// --- Función Global para Recalcular Cierres (Diario/Semanal) ---
+async function recalculateClosingReports(userName, targetDate) {
+    if (!userName || !targetDate) return;
+    const dateObj = new Date(targetDate);
+    if (isNaN(dateObj.getTime())) return;
+
+    // Helper para sumar
+    const getSum = async (table, col, start, end) => {
+        const { data } = await sbClient.from(table).select(col)
+            .eq(table === 'debtors' ? 'asesor_name' : 'user_name', userName)
+            .gte('created_at', start)
+            .lte('created_at', end);
+        return (data || []).reduce((sum, item) => sum + (parseFloat(item[col]) || 0), 0);
+    };
+
+    // 1. ACTUALIZAR REPORTE DIARIO
+    const startDay = new Date(dateObj); startDay.setHours(0,0,0,0);
+    const endDay = new Date(dateObj); endDay.setHours(23,59,59,999);
+    
+    const { data: dReports } = await sbClient.from('reports').select('*')
+        .eq('user_name', userName)
+        .gte('created_at', startDay.toISOString())
+        .lte('created_at', endDay.toISOString());
+
+    if (dReports && dReports.length > 0) {
+        for (const rep of dReports) {
+            const paySum = await getSum('payments', 'payment_amount', startDay.toISOString(), endDay.toISOString());
+            const credSum = await getSum('debtors', 'sale_value', startDay.toISOString(), endDay.toISOString());
+            const expSum = await getSum('expenses', 'total_expenses', startDay.toISOString(), endDay.toISOString());
+            
+            const finalBase = (parseFloat(rep.initial_base) || 0) + paySum - (credSum + expSum);
+            
+            await sbClient.from('reports').update({
+                payments_report: paySum, credits_report: credSum, expense_report: expSum, final_base: finalBase,
+                ...(rep.og_final_base !== null ? { og_final_base: finalBase } : {}) 
+            }).eq('report_number', rep.report_number);
+        }
+    }
+
+    // 2. ACTUALIZAR REPORTE SEMANAL
+    const rangeStart = new Date(dateObj); 
+    const rangeEnd = new Date(dateObj); rangeEnd.setDate(rangeEnd.getDate() + 7);
+    
+    const { data: wReports } = await sbClient.from('wreports').select('*')
+        .eq('user_name', userName)
+        .gte('created_at', rangeStart.toISOString()).lte('created_at', rangeEnd.toISOString());
+
+    if (wReports && wReports.length > 0) {
+        for (const rep of wReports) {
+            const repDate = new Date(rep.created_at);
+            const wStart = new Date(repDate); wStart.setDate(wStart.getDate() - 6); wStart.setHours(0,0,0,0);
+            const wEnd = new Date(repDate); wEnd.setHours(23,59,59,999);
+            if (dateObj >= wStart && dateObj <= wEnd) {
+                const paySum = await getSum('payments', 'payment_amount', wStart.toISOString(), wEnd.toISOString());
+                const credSum = await getSum('debtors', 'sale_value', wStart.toISOString(), wEnd.toISOString());
+                const expSum = await getSum('wexpenses', 'total_expenses', wStart.toISOString(), wEnd.toISOString());
+                const finalBase = (parseFloat(rep.initial_base) || 0) + paySum - (credSum + expSum);
+                await sbClient.from('wreports').update({ payments_report: paySum, credits_report: credSum, expense_report: expSum, final_base: finalBase, ...(rep.og_final_base !== null ? { og_final_base: finalBase } : {}) }).eq('report_number', rep.report_number);
+            }
         }
     }
 }
