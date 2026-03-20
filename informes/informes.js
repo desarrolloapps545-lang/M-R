@@ -837,12 +837,12 @@ document.addEventListener('DOMContentLoaded', () => {
         modal.style.cssText = 'display:flex; justify-content:center; align-items:center; z-index: 10001;';
 
         modal.innerHTML = `
-            <div class="modal-content" style="max-width: 400px;">
-                <span class="close-btn">&times;</span>
-                <h3 style="margin-top:0; color:#16233c;">${title}</h3>
-                <label for="generic-input-value" style="margin-top:15px;">${label}</label>
-                <input type="number" id="generic-input-value" value="${initialValue}" step="any" style="margin-top:5px;">
-                <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+            <div class="modal-content" style="max-width: 400px; padding: 30px; overflow: visible;">
+                <span class="close-btn" style="top: 10px; right: 15px;">&times;</span>
+                <h3 style="margin-top:0; margin-bottom: 20px; color:#16233c;">${title}</h3>
+                <label for="generic-input-value" style="display:block; margin-bottom: 10px; font-weight: bold;">${label}</label>
+                <input type="number" id="generic-input-value" value="${initialValue}" step="any" style="width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+                <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 25px;">
                     <button id="btn-cancel-generic-input" class="btn btn-secondary">Cancelar</button>
                     <button id="btn-save-generic-input" class="btn btn-primary">Guardar</button>
                 </div>
@@ -2357,15 +2357,45 @@ document.addEventListener('DOMContentLoaded', () => {
             editPmModal.style.display = 'none';
             
             // Actualizar reportes (Viejo y Nuevo)
-            if (wasChangedDate || wasChangedUser || amountDifference !== 0) {
-                await recalculateClosingReports(oldUser, new Date(oldDateISO)); // Actualizar origen
-                await recalculateClosingReports(newAdvisor, newDateObj); // Actualizar destino
-            }
+            const isGnActive = gnReportBox.style.display === 'block';
 
+            if (wasChangedDate || wasChangedUser || amountDifference !== 0) {
+                if (isGnActive && currentReportContext) {
+                    // En vista de Cierre (GN), evitamos actualizar el reporte activo automáticamente.
+                    // Se actualizará mediante el modal de confirmación al cerrar el detalle.
+                    const currentRepDate = new Date(currentReportContext.dateStr);
+                    const oldDateObj = new Date(oldDateISO);
+
+                    let updateOld = true;
+                    if (oldUser === currentReportContext.userName) {
+                        if (currentReportContext.mode === 'daily') {
+                            if (getLocalDateKey(oldDateObj) === getLocalDateKey(currentRepDate)) updateOld = false;
+                        } else {
+                            updateOld = false; // Modo semanal: Bloquear si es el mismo usuario
+                        }
+                    }
+
+                    let updateNew = true;
+                    if (newAdvisor === currentReportContext.userName) {
+                        if (currentReportContext.mode === 'daily') {
+                            if (getLocalDateKey(newDateObj) === getLocalDateKey(currentRepDate)) updateNew = false;
+                        } else {
+                            updateNew = false;
+                        }
+                    }
+
+                    if (updateOld) await recalculateClosingReports(oldUser, oldDateObj);
+                    if (updateNew && (oldUser !== newAdvisor || getLocalDateKey(oldDateObj) !== getLocalDateKey(newDateObj))) await recalculateClosingReports(newAdvisor, newDateObj);
+                } else {
+                    // Vista normal (PM): Actualizar todo en segundo plano
+                    await recalculateClosingReports(oldUser, new Date(oldDateISO));
+                    await recalculateClosingReports(newAdvisor, newDateObj);
+                }
+            }
 
             // Si estamos en la vista de Cierres (GN), refrescar el modal de detalles.
             // Si no, refrescar la tabla de Cobros (PM).
-            if (gnReportBox.style.display === 'block' && currentReportContext.reportId) {
+            if (isGnActive && currentReportContext.reportId) {
                 pendingReportUpdate = true;
                 openReportPaymentsDetails(currentReportContext.reportId, currentReportContext.userName, currentReportContext.dateStr, currentReportContext.mode);
             } else {
@@ -2860,6 +2890,9 @@ document.addEventListener('DOMContentLoaded', () => {
             total_expenses: newTotal
         };
         
+        btnSaveExpChanges.disabled = true;
+        btnSaveExpChanges.innerText = 'Guardando...';
+
         try {
             // 1. Actualizar tabla de gastos
             const { error: expError } = await sbClient
@@ -2872,9 +2905,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // 2. Marcar cambio pendiente (No actualizar reporte aún)
             pendingReportUpdate = true;
+            alert('Gastos actualizados correctamente. Cierre esta ventana para recalcular el reporte.');
 
         } catch (e) {
             alert("Error: " + e.message);
+        } finally {
+            btnSaveExpChanges.disabled = false;
+            btnSaveExpChanges.innerText = 'Guardar';
         }
     });
 
@@ -3239,8 +3276,8 @@ document.addEventListener('DOMContentLoaded', () => {
             pendingReportUpdate = true;
             alert('Cobro eliminado. Cierre el modal para recalcular el reporte.');
             
-            // Forzar actualización inmediata del cierre en BD
-            if (payData) await recalculateClosingReports(payData.user_name, new Date(payData.created_at));
+            // NOTA: Se elimina la actualización inmediata para permitir la confirmación vía modal.
+            // if (payData) await recalculateClosingReports(payData.user_name, new Date(payData.created_at));
 
             // Refrescar la vista del modal
             const { reportId, userName, dateStr, mode } = currentCreditsContext;
@@ -3448,10 +3485,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         modal.innerHTML = `
-            <div style="background:white;padding:30px;border-radius:8px;text-align:center;max-width:500px;box-shadow:0 0 20px rgba(0,0,0,0.5);border: 2px solid #16233c;">
-                <h3 style="color:#16233c;margin-top:0;text-transform:uppercase;">${title}</h3>
+            <div style="background:white; padding:40px; border-radius:15px; text-align:center; max-width:500px; width:90%; box-shadow:0 10px 30px rgba(0,0,0,0.3);">
+                <h3 style="color:#16233c; margin-top:0; margin-bottom:20px; text-transform:uppercase;">${title}</h3>
                 ${bodyHtml}
-                <button id="btn-confirm-mandatory-update" class="btn btn-primary" style="width:100%;font-size:1.1em;padding:12px;">Aceptar</button>
+                <button id="btn-confirm-mandatory-update" class="btn btn-primary" style="width:100%; font-size:1.1em; padding:12px; margin-top: 20px; border-radius: 8px;">Aceptar</button>
             </div>
         `;
         
@@ -3539,21 +3576,70 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Inicializar la primera vista de reporte
     // btnReportPg.click(); // Eliminado para mostrar estado vacío inicial
-});
 
-// --- Función Global para Recalcular Cierres (Diario/Semanal) ---
-async function recalculateClosingReports(userName, targetDate) {
+    // --- Función Global para Recalcular Cierres (Diario/Semanal) ---
+    async function recalculateClosingReports(userName, targetDate) {
     if (!userName || !targetDate) return;
     const dateObj = new Date(targetDate);
     if (isNaN(dateObj.getTime())) return;
 
-    // Helper para sumar
-    const getSum = async (table, col, start, end) => {
-        const { data } = await sbClient.from(table).select(col)
-            .eq(table === 'debtors' ? 'asesor_name' : 'user_name', userName)
+    // Helper: Sumar Creditos filtrando por termino (DIARIO/SEMANAL)
+    const getCreditSum = async (start, end, termType) => {
+        const { data } = await sbClient.from('debtors')
+            .select('sale_value, payment_term')
+            .eq('asesor_name', userName)
             .gte('created_at', start)
             .lte('created_at', end);
-        return (data || []).reduce((sum, item) => sum + (parseFloat(item[col]) || 0), 0);
+        
+        const target = termType === 'daily' ? 'DIARIO' : 'SEMANAL';
+        return (data || []).reduce((sum, c) => {
+            const term = c.payment_term;
+            let match = false;
+            if (Array.isArray(term)) match = term.some(t => String(t).toUpperCase() === target);
+            else match = String(term).toUpperCase() === target;
+            return match ? sum + (parseFloat(c.sale_value) || 0) : sum;
+        }, 0);
+    };
+
+    // Helper: Sumar Pagos filtrando por termino del deudor
+    const getPaymentSum = async (start, end, termType) => {
+        const { data: payments } = await sbClient.from('payments')
+            .select('payment_amount, debtor_number')
+            .eq('user_name', userName)
+            .gte('created_at', start)
+            .lte('created_at', end);
+        
+        if (!payments || payments.length === 0) return 0;
+
+        const debtorNumbers = [...new Set(payments.map(p => p.debtor_number).filter(Boolean))];
+        const debtorMap = new Map();
+        
+        if (debtorNumbers.length > 0) {
+            const { data: debtors } = await sbClient.from('debtors')
+                .select('debtor_number, payment_term')
+                .in('debtor_number', debtorNumbers);
+            if (debtors) debtors.forEach(d => debtorMap.set(d.debtor_number, d.payment_term));
+        }
+
+        const target = termType === 'daily' ? 'DIARIO' : 'SEMANAL';
+        return payments.reduce((sum, p) => {
+            const term = debtorMap.get(p.debtor_number);
+            let match = false;
+            if (term) {
+                if (Array.isArray(term)) match = term.some(t => String(t).toUpperCase() === target);
+                else match = String(term).toUpperCase() === target;
+            }
+            return match ? sum + (parseFloat(p.payment_amount) || 0) : sum;
+        }, 0);
+    };
+
+    // Helper: Sumar Gastos
+    const getExpenseSum = async (table, start, end) => {
+        const { data } = await sbClient.from(table).select('total_expenses')
+            .eq('user_name', userName)
+            .gte('created_at', start)
+            .lte('created_at', end);
+        return (data || []).reduce((sum, item) => sum + (parseFloat(item.total_expenses) || 0), 0);
     };
 
     // 1. ACTUALIZAR REPORTE DIARIO
@@ -3566,11 +3652,12 @@ async function recalculateClosingReports(userName, targetDate) {
         .lte('created_at', endDay.toISOString());
 
     if (dReports && dReports.length > 0) {
+        // Calcular sumas DIARIAS
+        const credSum = await getCreditSum(startDay.toISOString(), endDay.toISOString(), 'daily');
+        const paySum = await getPaymentSum(startDay.toISOString(), endDay.toISOString(), 'daily');
+        const expSum = await getExpenseSum('expenses', startDay.toISOString(), endDay.toISOString());
+
         for (const rep of dReports) {
-            const paySum = await getSum('payments', 'payment_amount', startDay.toISOString(), endDay.toISOString());
-            const credSum = await getSum('debtors', 'sale_value', startDay.toISOString(), endDay.toISOString());
-            const expSum = await getSum('expenses', 'total_expenses', startDay.toISOString(), endDay.toISOString());
-            
             const finalBase = (parseFloat(rep.initial_base) || 0) + paySum - (credSum + expSum);
             
             await sbClient.from('reports').update({
@@ -3581,24 +3668,32 @@ async function recalculateClosingReports(userName, targetDate) {
     }
 
     // 2. ACTUALIZAR REPORTE SEMANAL
-    const rangeStart = new Date(dateObj); 
-    const rangeEnd = new Date(dateObj); rangeEnd.setDate(rangeEnd.getDate() + 7);
+    // Buscar reportes semanales que incluyan esta fecha
+    const searchStart = new Date(dateObj); searchStart.setDate(searchStart.getDate() - 7);
+    const searchEnd = new Date(dateObj); searchEnd.setDate(searchEnd.getDate() + 7);
     
     const { data: wReports } = await sbClient.from('wreports').select('*')
         .eq('user_name', userName)
-        .gte('created_at', rangeStart.toISOString()).lte('created_at', rangeEnd.toISOString());
+        .gte('created_at', searchStart.toISOString())
+        .lte('created_at', searchEnd.toISOString());
 
     if (wReports && wReports.length > 0) {
         for (const rep of wReports) {
             const repDate = new Date(rep.created_at);
-            const wStart = new Date(repDate); wStart.setDate(wStart.getDate() - 6); wStart.setHours(0,0,0,0);
             const wEnd = new Date(repDate); wEnd.setHours(23,59,59,999);
+            const wStart = new Date(repDate); wStart.setDate(wStart.getDate() - 6); wStart.setHours(0,0,0,0);
+            
             if (dateObj >= wStart && dateObj <= wEnd) {
-                const paySum = await getSum('payments', 'payment_amount', wStart.toISOString(), wEnd.toISOString());
-                const credSum = await getSum('debtors', 'sale_value', wStart.toISOString(), wEnd.toISOString());
-                const expSum = await getSum('wexpenses', 'total_expenses', wStart.toISOString(), wEnd.toISOString());
+                // Calcular sumas SEMANALES
+                const credSum = await getCreditSum(wStart.toISOString(), wEnd.toISOString(), 'weekly');
+                const paySum = await getPaymentSum(wStart.toISOString(), wEnd.toISOString(), 'weekly');
+                const expSum = await getExpenseSum('wexpenses', wStart.toISOString(), wEnd.toISOString());
+
                 const finalBase = (parseFloat(rep.initial_base) || 0) + paySum - (credSum + expSum);
-                await sbClient.from('wreports').update({ payments_report: paySum, credits_report: credSum, expense_report: expSum, final_base: finalBase, ...(rep.og_final_base !== null ? { og_final_base: finalBase } : {}) }).eq('report_number', rep.report_number);
+                await sbClient.from('wreports').update({ 
+                    payments_report: paySum, credits_report: credSum, expense_report: expSum, final_base: finalBase, 
+                    ...(rep.og_final_base !== null ? { og_final_base: finalBase } : {}) 
+                }).eq('report_number', rep.report_number);
             }
         }
     }
@@ -3609,6 +3704,7 @@ async function recalculateClosingReports(userName, targetDate) {
         generateGnReport();
     }
 }
+});
 
 // --- Observer para bloquear scroll del body cuando hay modales abiertos ---
 const modalObserver = new MutationObserver(() => {
